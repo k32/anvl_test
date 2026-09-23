@@ -1,0 +1,6 @@
+%% -*- mode:erlang -*-
+{application, anvl_test_test,
+ [ {description, "A test application used as a test for anvl_test"}
+ , {vsn, "0.0.1"}
+ , {applications, [kernel, stdlib]}
+ ]}.

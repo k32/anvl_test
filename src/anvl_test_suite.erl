@@ -69,6 +69,7 @@ run(#suite{mod = Mod, tcs = TCs}) ->
 
 ?MEMO(executed, Fixtures, Mod, Fun, Instance,
       begin
+        precondition(dist_started()),
         Cluster = make_ref(),
         %% FIXME:
         N1 = rand:uniform(256) - 1,
@@ -216,6 +217,12 @@ invoke_method(Module, Test, Method, Arg) ->
 %%--------------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------------
+
+?MEMO(dist_started,
+      begin
+        familiar:ensure_distr(#{hidden => true}),
+        false
+      end).
 
 -spec get_instances(module(), test(), instances()) -> {ok, instances()} | {error, _}.
 get_instances(Module, Test, GlobalInstances) ->

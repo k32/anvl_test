@@ -5,6 +5,7 @@ Test suite that doesn't have any global tags or fixtures.
 """.
 
 -include_lib("anvl_test/include/anvl_test.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -test(foo).
 foo(instances, _) ->
@@ -17,10 +18,10 @@ foo(tags, #{instance := Inst}) ->
 foo(run, #{instance := _}) ->
   ok.
 
--test(bar).
-bar(run, #{instance := _}) ->
-  ok;
-bar(crash, Env) ->
+-test(parent_node_is_hidden).
+parent_node_is_hidden(run, #{instance := _}) ->
+  ?assertMatch([], nodes());
+parent_node_is_hidden(crash, Env) ->
   %% This branch should be unreachable
   error(Env).
 

@@ -33,10 +33,10 @@ conf() ->
               , tags = []
               , tcs = TCs0
               } = Suite0,
-        [bar, foo] = lists:sort(Tests0),
-        [ #tc{name = bar, inst = default, tags = []}
-        , #tc{name = foo, inst = 1, tags = [tag_1]}
+        [foo, parent_node_is_hidden] = lists:sort(Tests0),
+        [ #tc{name = foo, inst = 1, tags = [tag_1]}
         , #tc{name = foo, inst = 2, tags = [tag_2]}
+        , #tc{name = parent_node_is_hidden, inst = default, tags = []}
         ] = lists:sort(TCs0),
         false
       end).

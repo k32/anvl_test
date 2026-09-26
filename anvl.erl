@@ -2,7 +2,7 @@
 
 conf() ->
   #{ plugins => [anvl_erlc, anvl_git, anvl_texinfo, anvl_rebar3]
-   , conditions => [all]
+   , conditions => [build]
    , [erlang, includes] => ["${src_root}/include", "${src_root}/src", anvl_plugin:includes_dir()]
    , [deps, git] =>
        [#{ id => familiar
@@ -20,7 +20,7 @@ conf() ->
         }
    }.
 
-?MEMO(all,
+?MEMO(build,
       precondition(
         [ anvl_erlc:app_compiled(default, anvl_test)
         , doc()

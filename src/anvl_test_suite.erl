@@ -80,12 +80,14 @@ run(#suite{mod = Mod, tcs = TCs}) ->
                 , subnet   => 24
                 },
         ok = familiar:start_link_cluster(Conf),
-        {ok, Site, Node} = familiar:create_site(Cluster, <<"anvl_test">>,
-                                                #{ start => true
-                                                 , fixtures => Fixtures
-                                                 }),
+        Inst = integer_to_binary(erlang:unique_integer([monotonic])),
+        SiteId = <<(atom_to_binary(Mod))/binary, "-", (atom_to_binary(Fun))/binary, "-", Inst/binary>>,
+        {ok, Site, Node} = familiar:create_site(Cluster, SiteId,
+                                                 #{ start => true
+                                                  , fixtures => Fixtures
+                                                  }),
         Env = #{instance => Instance},
-        ok = erpc:call(Node, Mod, Fun, [run, Env]),
+        ok = familiar:call(Site, Mod, Fun, [run, Env]),
         true
       end).
 

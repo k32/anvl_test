@@ -45,9 +45,6 @@ conf() ->
       begin
         precondition(built()),
         {ok, Suite} = anvl_test_suite:load(att0),
-        net_kernel:start('test@127.0.0.1',
-                         #{ dist_listen => true
-                          }),
         anvl_test_suite:run(Suite)
       end).
 

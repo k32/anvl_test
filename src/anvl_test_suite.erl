@@ -22,7 +22,7 @@
 This module contains functions for interfacing with the test suites.
 """.
 
--export([load/1, load/2, tc_location/2, run/1]).
+-export([load/1, tc_location/2, run/1]).
 -export([invoke_method/4]).
 
 -include("types.hrl").
@@ -70,7 +70,8 @@ run(#suite{mod = Mod, tcs = TCs}) ->
 ?MEMO(executed, Fixtures, Mod, Fun, Instance,
       begin
         precondition(dist_started()),
-        Cluster = make_ref(),
+        SiteId = list_to_binary(peer:random_name(atom_to_list(Fun))),
+        Cluster = SiteId,
         %% FIXME:
         N1 = rand:uniform(256) - 1,
         N2 = rand:uniform(256) - 1,
@@ -81,9 +82,7 @@ run(#suite{mod = Mod, tcs = TCs}) ->
                 , subnet   => 24
                 },
         ok = familiar:start_link_cluster(Conf),
-        Inst = integer_to_binary(erlang:unique_integer([monotonic])),
-        SiteId = <<(atom_to_binary(Mod))/binary, "-", (atom_to_binary(Fun))/binary, "-", Inst/binary>>,
-        {ok, Site, Node} = familiar:create_site(Cluster, SiteId,
+        {ok, Site, _Node} = familiar:create_site(Cluster, SiteId,
                                                  #{ start => true
                                                   , fixtures => Fixtures
                                                   }),
@@ -111,9 +110,6 @@ tc_location(Module, Test) ->
   end.
 
 load(Module) ->
-  load(#filter{}, Module).
-
-load(Filter, Module) ->
   maybe
     code:purge(Module),
     {module, Module} ?= code:load_file(Module),
@@ -124,7 +120,7 @@ load(Filter, Module) ->
     ok ?= validate_fixtures(GlobalFixtures),
     {ok, GlobalInstances} ?= opt_call(Module, instances, [], [default]),
     ok ?= validate_instances(GlobalInstances),
-    {ok, TCs} ?= tcs(Filter, Module, GlobalFixtures, GlobalInstances, Tests, []),
+    {ok, TCs} ?= tcs(Module, GlobalFixtures, GlobalInstances, Tests, []),
     {ok, #suite{ mod = Module
                , tests = Tests
                , tags = Tags
@@ -141,18 +137,18 @@ load(Filter, Module) ->
       Err
   end.
 
-tcs(_Filter, _Module, _GlobalFixtures, _GlobalInstances, [], Acc) ->
+tcs(_Module, _GlobalFixtures, _GlobalInstances, [], Acc) ->
   {ok, Acc};
-tcs(Filter, Module, GlobalFixtures, GlobalInstances, [Test | Rest], Acc) ->
+tcs(Module, GlobalFixtures, GlobalInstances, [Test | Rest], Acc) ->
   maybe
     {ok, Instances} ?= get_instances(Module, Test, GlobalInstances),
-    {ok, TCs} ?= tcs1(Filter, Module, GlobalFixtures, Test, Instances, []),
-    tcs(Filter, Module, GlobalFixtures, GlobalInstances, Rest, TCs ++ Acc)
+    {ok, TCs} ?= tcs1(Module, GlobalFixtures, Test, Instances, []),
+    tcs(Module, GlobalFixtures, GlobalInstances, Rest, TCs ++ Acc)
   end.
 
-tcs1(_Filter, _Module, _GlobalFixtures, _Test, [], Acc) ->
+tcs1(_Module, _GlobalFixtures, _Test, [], Acc) ->
   {ok, Acc};
-tcs1(Filter, Module, GlobalFixtures, Test, [Inst | Rest], Acc) ->
+tcs1(Module, GlobalFixtures, Test, [Inst | Rest], Acc) ->
   maybe
     {ok, Tags} ?= get_tags(Module, Test, Inst),
     {ok, Fixtures} ?= get_fixtures(Module, Test, Inst, GlobalFixtures),
@@ -161,7 +157,7 @@ tcs1(Filter, Module, GlobalFixtures, Test, [Inst | Rest], Acc) ->
             , tags = Tags
             , fixtures = Fixtures
             },
-    tcs1(Filter, Module, GlobalFixtures, Test, Rest, [TC | Acc])
+    tcs1(Module, GlobalFixtures, Test, Rest, [TC | Acc])
   end.
 
 get_tags(Module, Test, Instance) ->
@@ -220,7 +216,7 @@ invoke_method(Module, Test, Method, Arg) ->
 
 ?MEMO(dist_started,
       begin
-        familiar:ensure_distr(#{hidden => true}),
+        familiar:ensure_distr(#{hidden => true, name_domain => longnames}),
         false
       end).
 

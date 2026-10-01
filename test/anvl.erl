@@ -1,5 +1,5 @@
 -include("anvl.hrl").
--include("../src/anvl_test_internal.hrl").
+-include("../include/anvl_test_internal.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
 conf() ->

@@ -87,7 +87,21 @@ run(#suite{mod = Mod, tcs = TCs}) ->
                                                   , fixtures => Fixtures
                                                   }),
         Env = #{instance => Instance},
-        ok = familiar:call(Site, Mod, Fun, [run, Env]),
+        try
+          familiar:call(Site, Mod, Fun, [run, Env]),
+          Msg = anvl_logger_formatter:format(
+                  success,
+                  "✅ ~p:~p(~P)",
+                  [Mod, Fun, Instance, 10]),
+          ?LOG_NOTICE(Msg)
+        catch
+          EC:Err:Stack ->
+            MsgFail = anvl_logger_formatter:format(
+                        error,
+                        "❌ ~p:~p(~P)~n~p:~p~n~p",
+                        [Mod, Fun, Instance, 10, EC, Err, Stack]),
+            ?UNSAT(MsgFail, [])
+        end,
         true
       end).
 

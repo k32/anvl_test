@@ -45,7 +45,7 @@ conf() ->
       begin
         precondition(built()),
         {ok, Suite} = anvl_test_suite:load(att0),
-        anvl_test_suite:run(Suite)
+        anvl_test:run(Suite)
       end).
 
 built() ->

@@ -22,7 +22,7 @@
 This module contains functions for interfacing with the test suites.
 """.
 
--export([load/1, tc_location/2, run/1]).
+-export([load/1, tc_location/2]).
 -export([invoke_method/4]).
 
 -include("types.hrl").
@@ -63,47 +63,6 @@ This module contains functions for interfacing with the test suites.
 %%--------------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------------
-
-run(#suite{mod = Mod, tcs = TCs}) ->
-  precondition([executed(Fixtures, Mod, Name, Inst) || #tc{name = Name, inst = Inst, fixtures = Fixtures} <:- TCs]).
-
-?MEMO(executed, Fixtures, Mod, Fun, Instance,
-      begin
-        precondition(dist_started()),
-        SiteId = list_to_binary(peer:random_name(atom_to_list(Fun))),
-        Cluster = SiteId,
-        %% FIXME:
-        N1 = rand:uniform(256) - 1,
-        N2 = rand:uniform(256) - 1,
-        Conf = #{ id       => Cluster
-                , fixtures => Fixtures
-                , peer     => #{}
-                , net      => {127, N1, N2, 0}
-                , subnet   => 24
-                },
-        ok = familiar:start_link_cluster(Conf),
-        {ok, Site, _Node} = familiar:create_site(Cluster, SiteId,
-                                                 #{ start => true
-                                                  , fixtures => Fixtures
-                                                  }),
-        Env = #{instance => Instance},
-        try
-          familiar:call(Site, Mod, Fun, [run, Env]),
-          Msg = anvl_logger_formatter:format(
-                  success,
-                  "✅ ~p:~p(~P)",
-                  [Mod, Fun, Instance, 10]),
-          ?LOG_NOTICE(Msg)
-        catch
-          EC:Err:Stack ->
-            MsgFail = anvl_logger_formatter:format(
-                        error,
-                        "❌ ~p:~p(~P)~n~p:~p~n~p",
-                        [Mod, Fun, Instance, 10, EC, Err, Stack]),
-            ?UNSAT(MsgFail, [])
-        end,
-        true
-      end).
 
 tc_location(Module, Test) ->
   %% TODO: add a more reliable way to do this via parse transform
@@ -227,12 +186,6 @@ invoke_method(Module, Test, Method, Arg) ->
 %%--------------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------------
-
-?MEMO(dist_started,
-      begin
-        familiar:ensure_distr(#{hidden => true, name_domain => longnames}),
-        false
-      end).
 
 -spec get_instances(module(), test(), instances()) -> {ok, instances()} | {error, _}.
 get_instances(Module, Test, GlobalInstances) ->

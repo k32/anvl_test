@@ -29,6 +29,7 @@ conf() ->
         precondition(built()),
         {ok, Suite0} = anvl_test_suite:load(att0),
         #suite{ mod = att0
+              , runner = anvl_test_suite
               , tests = Tests0
               , tags = []
               , tcs = TCs0

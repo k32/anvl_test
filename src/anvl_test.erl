@@ -82,8 +82,8 @@ project_model() ->
 %% API
 %%--------------------------------------------------------------------------
 
-run(#suite{mod = Mod, tcs = TCs}) ->
-  precondition([executed(Fixtures, Mod, Name, Inst) || #tc{name = Name, inst = Inst, fixtures = Fixtures} <:- TCs]).
+run(#suite{mod = Mod, runner = Runner, tcs = TCs}) ->
+  precondition([executed(Runner, Fixtures, Mod, Name, Inst) || #tc{name = Name, inst = Inst, fixtures = Fixtures} <:- TCs]).
 
 %%--------------------------------------------------------------------------
 %% Internal exports
@@ -93,7 +93,7 @@ run(#suite{mod = Mod, tcs = TCs}) ->
 %% Internal functions
 %%--------------------------------------------------------------------------
 
-?MEMO(executed, Fixtures, Mod, Fun, Instance,
+?MEMO(executed, Runner, Fixtures, Mod, Fun, Instance,
       begin
         precondition(dist_started()),
         SiteId = list_to_binary(peer:random_name(atom_to_list(Fun))),
@@ -114,7 +114,7 @@ run(#suite{mod = Mod, tcs = TCs}) ->
                                                   }),
         Env = #{instance => Instance},
         try
-          familiar:call(Site, Mod, Fun, [run, Env]),
+          familiar:call(Site, Runner, run_test, [Mod, Fun, Env]),
           Msg = anvl_logger_formatter:format(
                   success,
                   "✅ ~p:~p(~P)",

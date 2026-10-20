@@ -10,6 +10,7 @@
 
 -record(suite,
         { mod :: module()
+        , runner = anvl_test_suite :: module()
         , tests :: [anvl_test_suite:test()]
         , fixtures :: [familiar:fixture()]
         , tags :: list()

@@ -22,7 +22,9 @@
 This module contains functions for interfacing with the test suites.
 """.
 
--export([load/1, tc_location/2]).
+-behavior(anvl_test_runner).
+
+-export([load/1, run_test/3, tc_location/2]).
 -export([invoke_method/4]).
 
 -include("types.hrl").
@@ -64,6 +66,10 @@ This module contains functions for interfacing with the test suites.
 %% API
 %%--------------------------------------------------------------------------
 
+-spec run_test(module(), atom(), map()) -> term().
+run_test(Module, Test, Env) ->
+  Module:Test(run, Env).
+
 tc_location(Module, Test) ->
   %% TODO: add a more reliable way to do this via parse transform
   try
@@ -95,6 +101,7 @@ load(Module) ->
     ok ?= validate_instances(GlobalInstances),
     {ok, TCs} ?= tcs(Module, GlobalFixtures, GlobalInstances, Tests, []),
     {ok, #suite{ mod = Module
+               , runner = anvl_test_suite
                , tests = Tests
                , tags = Tags
                , tcs = TCs

@@ -9,6 +9,12 @@
         , timeout :: timeout()
         }).
 
+-record(tc_error,
+        { class :: throw | exit | error | timeout
+        , reason :: term()
+        , stack :: list()
+        }).
+
 -record(suite,
         { suite :: anvl_test:suite()
         , runner = anvl_test_suite :: module()

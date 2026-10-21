@@ -135,26 +135,34 @@ run(#suite{suite = Suite, runner = Runner, tcs = TCs}) ->
                           infinity -> infinity;
                           _        -> Timeout + ?TIMEOUT_GRACE_PERIOD
                         end,
-          familiar:call(Site, ?MODULE, run_test_with_timeout,
-                        [Runner, Suite, Fun, Env, Timeout], RpcTimeout),
-          Msg = anvl_logger_formatter:format(
-                  success,
-                  "✅ ~p:~p(~P)",
-                  [Suite, Fun, Instance, 10]),
-          ?LOG_NOTICE(Msg)
+          case familiar:call(Site, ?MODULE, run_test_with_timeout,
+                             [Runner, Suite, Fun, Env, Timeout], RpcTimeout) of
+            #tc_error{class = timeout, stack = TCStack} ->
+              MsgFail = anvl_logger_formatter:format(
+                          error,
+                          "❌ ~p:~p(~P) timed out, stack of the test process:~n~p",
+                          [Suite, Fun, Instance, 10, TCStack]),
+              ?UNSAT(MsgFail, []);
+            #tc_error{class = Class, reason = Reason, stack = Stack} ->
+              MsgFail = anvl_logger_formatter:format(
+                          error,
+                          "❌ ~p:~p(~P)~n~p:~p~n~p",
+                          [Suite, Fun, Instance, 10, Class, Reason, Stack]),
+              ?UNSAT(MsgFail, []);
+            ok ->
+              Msg = anvl_logger_formatter:format(
+                      success,
+                      "✅ ~p:~p(~P)",
+                      [Suite, Fun, Instance, 10]),
+              ?LOG_NOTICE(Msg)
+          end
         catch
-          exit:{exception, {test_timeout, _Suite, _Fun, TCStack}} ->
-            MsgFail = anvl_logger_formatter:format(
-                        error,
-                        "❌ ~p:~p(~P) timed out, stack of the test process:~n~p",
-                        [Suite, Fun, Instance, 10, TCStack]),
-            ?UNSAT(MsgFail, []);
-          EC:Err:Stack ->
-            MsgFail = anvl_logger_formatter:format(
+          InfraClass:InfraReason:Stacktrace ->
+            MsgFailInfra = anvl_logger_formatter:format(
                         error,
                         "❌ ~p:~p(~P)~n~p:~p~n~p",
-                        [Suite, Fun, Instance, 10, EC, Err, Stack]),
-            ?UNSAT(MsgFail, [])
+                        [Suite, Fun, Instance, 10, InfraClass, InfraReason, Stacktrace]),
+            ?UNSAT(MsgFailInfra, [])
         end,
         true
       end).
@@ -162,24 +170,29 @@ run(#suite{suite = Suite, runner = Runner, tcs = TCs}) ->
 -doc false.
 %% This function is executed on the test site,
 %% so the watchdog aborts the execution of the test case there:
--spec run_test_with_timeout(module(), module(), atom(), map(), timeout()) -> term().
+%% Errors of the test case are returned as records
+%% instead of exceptions, to distinguish them from infrastructure errors:
+-spec run_test_with_timeout(module(), module(), atom(), map(), timeout()) -> ok | #tc_error{}.
 run_test_with_timeout(Runner, Suite, Fun, Env, Timeout) ->
   Parent = self(),
   Pid = proc_lib:spawn(fun() ->
-                           try Parent ! {self(), Runner:run_test(Suite, Fun, Env, Timeout)}
-                           catch EC:Err:Stack ->
-                               Parent ! {self(), EC, Err, Stack}
+                           try
+                             _ = Runner:run_test(Suite, Fun, Env, Timeout),
+                             Parent ! {self(), ok}
+                           catch Class:Reason:Stack ->
+                               Parent ! {self(), #tc_error{ class = Class
+                                                          , reason = Reason
+                                                          , stack = Stack
+                                                          }}
                            end
                        end),
   receive
     {Pid, Ret} ->
-      Ret;
-    {Pid, EC, Err, Stack} ->
-      erlang:raise(EC, Err, Stack)
+      Ret
   after Timeout ->
       {current_stacktrace, TCStack} = process_info(Pid, current_stacktrace),
       exit(Pid, kill),
-      exit({test_timeout, Suite, Fun, TCStack})
+      #tc_error{class = timeout, reason = Timeout, stack = TCStack}
   end.
 
 ?MEMO(dist_started,

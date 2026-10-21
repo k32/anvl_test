@@ -27,18 +27,15 @@ conf() ->
 ?MEMO(timeout_test,
       begin
         precondition(built()),
-        try
-          anvl_test:run_test_with_timeout(anvl_test_suite, att0, sleepy, #{instance => default}, 100),
-          error(no_timeout)
-        catch
-          exit:{test_timeout, att0, sleepy, TCStack} ->
-            %% The stack of the timed out test process must be reported:
-            true = lists:any(fun({M, F, _, _}) -> M =:= att0 andalso F =:= sleepy;
-                                (_) -> false
-                             end,
-                             TCStack),
-            false
-        end
+        #tc_error{class = timeout, stack = TCStack} =
+          anvl_test:run_test_with_timeout(anvl_test_suite, att0, sleepy,
+                                          #{instance => default}, 100),
+        %% The stack of the timed out test process must be reported:
+        true = lists:any(fun({M, F, _, _}) -> M =:= att0 andalso F =:= sleepy;
+                            (_) -> false
+                         end,
+                         TCStack),
+        false
       end).
 
 ?MEMO(discover_test,

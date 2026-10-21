@@ -30,12 +30,13 @@ conf() ->
 ?MEMO(discover_test,
       begin
         precondition(built()),
+        %% The suites are discovered via the anvl_test_discover hooks:
         {ok, [#suite{ suite = att0
-                     , runner = anvl_test_suite
-                     , tests = Tests0
-                     , tags = []
-                     , tcs = TCs0
-                     }]} = anvl_test_suite:discover(test, anvl_test_test),
+                    , runner = anvl_test_suite
+                    , tests = Tests0
+                    , tags = []
+                    , tcs = TCs0
+                    }]} = anvl_test:discover(test, anvl_test_test),
         [expected_fail, foo, parent_node_is_hidden, sleepy] = lists:sort(Tests0),
         [ #tc{name = expected_fail, inst = default, tags = [], timeout = 30000}
         , #tc{name = foo, inst = 1, tags = [tag_1], timeout = 1000}

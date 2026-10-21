@@ -44,6 +44,14 @@ and resetting @code{Fail} prevents the condition from failing.
 The hooks append their log messages to the iolist,
 and the plugin prints it after all hooks complete.
 
+@item
+@code{anvl_test_discover}: called when test suites of an OTP application are being discovered.
+The hooks take the profile and the application name as arguments,
+and return @code{@{ok, Suites@}} or @code{@{error, Suites@}},
+with the same semantics as @code{anvl_test_suite:discover/2}.
+The plugin combines the results of all hooks into a single tuple of the same shape.
+The default hook uses @code{anvl_test_suite:discover/2}.
+
 @end itemize
 
 The plugin itself installs default hooks that log the outcome of each test case run.
@@ -53,10 +61,10 @@ The plugin itself installs default hooks that log the outcome of each test case 
 -export([model/0, project_model/0, init/0, init_for_project/1]).
 
 -export_type([suite/0, run_id/0, on_test_success_arg/0, on_test_success_acc/0,
-              on_test_fail_arg/0, on_test_fail_acc/0]).
+              on_test_fail_arg/0, on_test_fail_acc/0, discover_ret/0]).
 
 %% API:
--export([run/2]).
+-export([run/2, discover/2]).
 
 %% Internal exports:
 -export([run_test_with_timeout/5]).
@@ -99,6 +107,11 @@ The plugin itself installs default hooks that log the outcome of each test case 
          , workdir := file:filename_all()
          , result  := #tc_error{}
          }.
+
+%% Return type of the anvl_test_discover hooks. The hooks take the profile
+%% and the application name as arguments:
+-type discover_ret() ::
+        { ok, [#suite{}] } | { error, [#suite{}] }.
 
 %% Accumulator of the on_test_fail hooks:
 -type on_test_fail_acc() ::
@@ -210,6 +223,28 @@ ensure_default_fixtures(Fixtures0) ->
 -spec run(run_id(), #suite{}) -> boolean().
 run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
   precondition([executed(RunId, Runner, Suite, TC) || TC <:- TCs]).
+
+-doc """
+Discover test suites of an OTP application by running the @code{anvl_test_discover} hooks
+and combining their results.
+""".
+-spec discover(anvl_erlc:profile(), anvl_erlc:application()) -> discover_ret().
+discover(Profile, App) ->
+  %% Run the hooks and combine their results in a single pass:
+  {Suites, AllOk} =
+    anvl_hook:traverse(
+      fun(Hook, {Suites, AllOk}) ->
+          case Hook(Profile, App) of
+            {Status, Suites1} ->
+              {true, {Suites ++ Suites1, AllOk andalso Status =:= ok}}
+          end
+      end,
+      {[], true},
+      anvl_test_discover),
+  case AllOk of
+    true  -> {ok, Suites};
+    false -> {error, Suites}
+  end.
 
 %%--------------------------------------------------------------------------
 %% Internal exports
@@ -331,6 +366,7 @@ run_test_with_timeout(Runner, Suite, Fun, Env, Timeout) ->
 install_default_hooks() ->
   anvl_hook:add(on_test_success, fun log_test_success/1),
   anvl_hook:add(on_test_fail, fun log_test_fail/1),
+  anvl_hook:add(anvl_test_discover, fun anvl_test_suite:discover/2),
   ok.
 
 -spec log_test_success(on_test_success_acc()) -> on_test_success_acc().

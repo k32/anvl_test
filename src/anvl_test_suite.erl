@@ -24,7 +24,7 @@ This module contains functions for interfacing with the test suites.
 
 -behavior(anvl_test_runner).
 
--export([load/1, run_test/3, tc_location/2]).
+-export([load/1, run_test/3, tc_location/2, discover/2]).
 -export([invoke_method/4]).
 
 -include("types.hrl").
@@ -62,6 +62,8 @@ This module contains functions for interfacing with the test suites.
 
 -callback instances() -> instances().
 
+-optional_callbacks([tags/0, fixtures/0, instances/0]).
+
 %%--------------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------------
@@ -90,8 +92,6 @@ tc_location(Module, Test) ->
 
 load(Module) ->
   maybe
-    code:purge(Module),
-    {module, Module} ?= code:load_file(Module),
     {_, Tests} ?= proplists:lookup(anvl_test_tests, Module:module_info(attributes)),
     {ok, Tags} ?= opt_call(Module, tags, [], []),
     ok ?= validate_tags(Tags),
@@ -100,21 +100,42 @@ load(Module) ->
     {ok, GlobalInstances} ?= opt_call(Module, instances, [], [default]),
     ok ?= validate_instances(GlobalInstances),
     {ok, TCs} ?= tcs(Module, GlobalFixtures, GlobalInstances, Tests, []),
-    {ok, #suite{ mod = Module
+    {ok, #suite{ suite = Module
                , runner = anvl_test_suite
                , tests = Tests
                , tags = Tags
                , tcs = TCs
                }}
   else
-    {module, Bad} ->
-      {error, [Module], {bad_module_attr, Bad}};
     none ->
       {error, [Module], not_a_suite};
     {error, Err} ->
       {error, [Module], Err};
     {error, _, _} = Err ->
       Err
+  end.
+
+-spec discover(anvl_erlc:profile(), anvl_erlc:application()) -> {ok, [#suite{}]} | {error, [#suite{}]}.
+discover(Profile, App) ->
+  _ = precondition(anvl_erlc:app_compiled(Profile, App)),
+  Modules = [Module
+             || Module <- anvl_erlc:app_modules(Profile, App),
+                {Key, [?MODULE]} <- Module:module_info(attributes),
+                Key =:= behaviour orelse Key =:= behavior],
+  load_suites(Modules, [], false).
+
+-spec load_suites([module()], [#suite{}], boolean()) -> {ok, [#suite{}]} | {error, [#suite{}]}.
+load_suites([], Acc, false) ->
+  {ok, Acc};
+load_suites([], Acc, true) ->
+  {error, Acc};
+load_suites([Module | Rest], Acc, Failed) ->
+  case load(Module) of
+    {ok, Suite} ->
+      load_suites(Rest, [Suite | Acc], Failed);
+    Error ->
+      ?LOG_ERROR("Failed to load suite ~p: ~p", [Module, Error]),
+      load_suites(Rest, Acc, true)
   end.
 
 tcs(_Module, _GlobalFixtures, _GlobalInstances, [], Acc) ->

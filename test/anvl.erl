@@ -22,13 +22,30 @@ conf() ->
    }.
 
 ?MEMO(all,
-      precondition([suite_load_test(), run_test()])).
+      precondition([suite_load_test(), run_test(), discover_test()])).
+
+?MEMO(discover_test,
+      begin
+        precondition(built()),
+        {ok, [#suite{ suite = att0
+                     , runner = anvl_test_suite
+                     , tests = Tests0
+                     , tags = []
+                     , tcs = TCs0
+                     }]} = anvl_test_suite:discover(test, anvl_test_test),
+        [foo, parent_node_is_hidden] = lists:sort(Tests0),
+        [ #tc{name = foo, inst = 1, tags = [tag_1]}
+        , #tc{name = foo, inst = 2, tags = [tag_2]}
+        , #tc{name = parent_node_is_hidden, inst = default, tags = []}
+        ] = lists:sort(TCs0),
+        false
+      end).
 
 ?MEMO(suite_load_test,
       begin
         precondition(built()),
         {ok, Suite0} = anvl_test_suite:load(att0),
-        #suite{ mod = att0
+        #suite{ suite = att0
               , runner = anvl_test_suite
               , tests = Tests0
               , tags = []

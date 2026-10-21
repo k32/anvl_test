@@ -1,0 +1,35 @@
+\node Test, ANVL Test Plugin
+@chapter Test, ANVL Plugin
+
+@code{anvl_test} is a plugin for running Erlang/OTP test suites.
+
+Test suites are discovered automatically in the OTP applications of the
+project, and executed on isolated peer nodes.
+
+@section Writing test suites
+
+A test suite is an Erlang module that implements the
+@code{anvl_test_suite} behavior:
+
+@verbatim
+-module(my_suite).
+-behavior(anvl_test_suite).
+
+-include_lib("anvl_test/include/anvl_test.hrl").
+
+-test(some_test).
+some_test(run, #{instance := _}) ->
+  ok.
+@end verbatim
+
+Including @file{anvl_test.hrl} applies a parse transform that collects
+the @code{-test} attributes into a module attribute
+(@code{anvl_test_tests}) and exports the test functions.
+
+@section Test case instances
+
+The same test function can be run against multiple @i{instances}.
+Default implementation of the @code{instances/0} callback returns
+@code{[default]}.
+
+@lee{anvl_test,ANVL Test}

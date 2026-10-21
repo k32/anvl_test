@@ -9,7 +9,7 @@
         }).
 
 -record(suite,
-        { mod :: module()
+        { suite :: anvl_test:suite()
         , runner = anvl_test_suite :: module()
         , tests :: [anvl_test_suite:test()]
         , fixtures :: [familiar:fixture()]

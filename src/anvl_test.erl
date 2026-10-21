@@ -32,15 +32,21 @@ The hooks take a map of type @code{anvl_test:on_test_success_arg()}.
 @item
 @code{on_test_fail}: called when a test case run fails,
 e.g. it crashed or timed out.
-The hooks take a map of type @code{anvl_test:on_test_fail_arg()}.
+The hooks are folded over an accumulator of type @code{anvl_test:on_test_fail_acc()}:
+a tuple of the argument map of type @code{anvl_test:on_test_fail_arg()}
+and the @code{@{Retry, Fail@}} flags.
+Setting @code{Retry} requests re-execution of the test case,
+and resetting @code{Fail} prevents the condition from failing.
 
 @end itemize
+
+The plugin itself installs default hooks that log the outcome of each test case run.
 """.
 
 %% behavior callbacks:
 -export([model/0, project_model/0, init/0, init_for_project/1]).
 
--export_type([suite/0, run_id/0, on_test_success_arg/0, on_test_fail_arg/0]).
+-export_type([suite/0, run_id/0, on_test_success_arg/0, on_test_fail_arg/0, on_test_fail_acc/0]).
 
 %% API:
 -export([run/2]).
@@ -79,6 +85,13 @@ The hooks take a map of type @code{anvl_test:on_test_fail_arg()}.
          , result := #tc_error{}
          }.
 
+%% Accumulator of the on_test_fail hooks:
+-type on_test_fail_acc() ::
+        { on_test_fail_arg()
+        , Retry :: boolean()
+        , Fail  :: boolean()
+        }.
+
 
 %%--------------------------------------------------------------------------
 %% anvl callbacks
@@ -87,7 +100,8 @@ The hooks take a map of type @code{anvl_test:on_test_fail_arg()}.
 -doc false.
 init() ->
   anvl_resource:declare(anvl_test, 1),
-  application:ensure_all_started(anvl_test).
+  application:ensure_all_started(anvl_test),
+  install_default_hooks().
 
 -doc false.
 init_for_project(_Project) ->
@@ -179,31 +193,19 @@ run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
                                                    , suite  => Suite
                                                    , tc     => TC
                                                    }),
-            Msg = anvl_logger_formatter:format(
-                    success,
-                    "✅ ~p:~p(~P)",
-                    [Suite, Fun, Instance, 10]),
-            ?LOG_NOTICE(Msg);
+            true;
           #tc_error{} = Result ->
-            _ = anvl_hook:foreach(on_test_fail, #{ run_id => RunId
-                                                 , runner => Runner
-                                                 , suite  => Suite
-                                                 , tc     => TC
-                                                 , result => Result
-                                                 }),
-            case Result of
-              #tc_error{class = timeout, stack = TCStack} ->
-                MsgFail = anvl_logger_formatter:format(
-                            error,
-                            "❌ ~p:~p(~P) timed out, stack of the test process:~n~p",
-                            [Suite, Fun, Instance, 10, TCStack]),
-                ?UNSAT(MsgFail, []);
-              #tc_error{class = Class, reason = Reason, stack = Stack} ->
-                MsgFail = anvl_logger_formatter:format(
-                            error,
-                            "❌ ~p:~p(~P)~n~p:~p~n~p",
-                            [Suite, Fun, Instance, 10, Class, Reason, Stack]),
-                ?UNSAT(MsgFail, [])
+            Arg = #{ run_id => RunId
+                   , runner => Runner
+                   , suite  => Suite
+                   , tc     => TC
+                   , result => Result
+                   },
+            {_Arg, _Retry, Fail} = anvl_hook:fold(on_test_fail, {Arg, false, true}),
+            %% TODO: When Retry is true, re-run the test case with a fresh RunId
+            case Fail of
+              true  -> exit(unsat);
+              false -> true
             end
         end,
         true
@@ -237,6 +239,48 @@ run_test_with_timeout(Runner, Suite, Fun, Env, Timeout) ->
       exit(Pid, kill),
       #tc_error{class = timeout, reason = Timeout, stack = TCStack}
   end.
+
+%% Default hooks installed by the plugin. They report the outcome of the
+%% test case runs:
+-spec install_default_hooks() -> ok.
+install_default_hooks() ->
+  anvl_hook:add(on_test_success, fun log_test_success/1),
+  anvl_hook:add(on_test_fail, fun log_test_fail/1),
+  ok.
+
+-spec log_test_success(on_test_success_arg()) -> false.
+log_test_success(#{ suite := Suite
+                  , tc := #tc{name = Fun, inst = Instance}
+                  }) ->
+  Msg = anvl_logger_formatter:format(
+          success,
+          "✅ ~p:~p(~P)",
+          [Suite, Fun, Instance, 10]),
+  ?LOG_NOTICE(Msg),
+  false.
+
+-spec log_test_fail(on_test_fail_acc()) -> on_test_fail_acc().
+log_test_fail({#{ suite := Suite
+                , tc := #tc{name = Fun, inst = Instance}
+                , result := Result
+                } = Arg,
+               Retry,
+               Fail}) ->
+  MsgFail =
+    case Result of
+      #tc_error{class = timeout, stack = TCStack} ->
+        anvl_logger_formatter:format(
+          error,
+          "❌ ~p:~p(~P) timed out, stack of the test process:~n~p",
+          [Suite, Fun, Instance, 10, TCStack]);
+      #tc_error{class = Class, reason = Reason, stack = Stack} ->
+        anvl_logger_formatter:format(
+          error,
+          "❌ ~p:~p(~P)~n~p:~p~n~p",
+          [Suite, Fun, Instance, 10, Class, Reason, Stack])
+    end,
+  ?LOG_CRITICAL(MsgFail),
+  {Arg, Retry, Fail}.
 
 ?MEMO(dist_started,
       begin

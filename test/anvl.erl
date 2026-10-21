@@ -89,9 +89,9 @@ conf() ->
                                false
                            end),
              anvl_hook:add(on_test_fail,
-                           fun(#{result := #tc_error{}} = Arg) ->
-                               ?tp(on_testcase_fail, Arg),
-                               false
+                            fun({#{result := #tc_error{}} = Arg, Retry, Fail}) ->
+                                ?tp(on_testcase_fail, Arg),
+                                {Arg, Retry, Fail}
                            end),
              true = anvl_test:run(make_ref(), Suite)
            end,

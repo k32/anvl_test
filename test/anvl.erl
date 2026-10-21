@@ -2,6 +2,9 @@
 -include("../include/anvl_test_internal.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
+-define(SNK_COLLECTOR, true).
+-include("snabbkaffe.hrl").
+
 conf() ->
   #{ plugins => [anvl_erlc, anvl_git, anvl_rebar3, anvl_test]
    , conditions => [all]
@@ -75,9 +78,31 @@ conf() ->
 
 ?MEMO(run_test,
       begin
-        precondition(built()),
-        {ok, Suite} = anvl_test_suite:load(att0),
-        anvl_test:run(Suite)
+        ?check_trace(
+           #{timetrap => 30000},
+           begin
+             precondition(built()),
+             {ok, Suite} = anvl_test_suite:load(att0),
+             anvl_hook:add(on_test_success,
+                           fun(#{tc := #tc{}} = Arg) ->
+                               ?tp(on_testcase_success, Arg),
+                               false
+                           end),
+             anvl_hook:add(on_test_fail,
+                           fun(#{result := #tc_error{}} = Arg) ->
+                               ?tp(on_testcase_fail, Arg),
+                               false
+                           end),
+             true = anvl_test:run(make_ref(), Suite)
+           end,
+           fun(Trace) ->
+               [foo, foo, parent_node_is_hidden] =
+                 lists:sort([Name || #{tc := #tc{name = Name}} <- ?of_kind(on_testcase_success, Trace)]),
+               [] = ?of_kind(on_testcase_fail, Trace),
+               ok
+           end),
+        ok = snabbkaffe:stop(),
+        false
       end).
 
 built() ->

@@ -20,15 +20,30 @@
 -module(anvl_test).
 -moduledoc """
 A plugin for running tests.
+
+The plugin defines the following hook points:
+
+@itemize
+
+@item
+@code{on_test_success}: called when a test case run succeeds.
+The hooks take a map of type @code{anvl_test:on_test_success_arg()}.
+
+@item
+@code{on_test_fail}: called when a test case run fails,
+e.g. it crashed or timed out.
+The hooks take a map of type @code{anvl_test:on_test_fail_arg()}.
+
+@end itemize
 """.
 
 %% behavior callbacks:
 -export([model/0, project_model/0, init/0, init_for_project/1]).
 
--export_type([suite/0]).
+-export_type([suite/0, run_id/0, on_test_success_arg/0, on_test_fail_arg/0]).
 
 %% API:
--export([run/1]).
+-export([run/2]).
 
 %% Internal exports:
 -export([run_test_with_timeout/5]).
@@ -46,6 +61,23 @@ A plugin for running tests.
 %%--------------------------------------------------------------------------
 
 -type suite() :: module().
+
+-type run_id() :: term().
+
+-type on_test_success_arg() ::
+        #{ run_id := run_id()
+         , runner := module()
+         , suite  := suite()
+         , tc     := #tc{}
+         }.
+
+-type on_test_fail_arg() ::
+        #{ run_id := run_id()
+         , runner := module()
+         , suite  := suite()
+         , tc     := #tc{}
+         , result := #tc_error{}
+         }.
 
 
 %%--------------------------------------------------------------------------
@@ -98,8 +130,9 @@ project_model() ->
 %% API
 %%--------------------------------------------------------------------------
 
-run(#suite{suite = Suite, runner = Runner, tcs = TCs}) ->
-  precondition([executed(Runner, Suite, TC) || TC <:- TCs]).
+-spec run(run_id(), #suite{}) -> boolean().
+run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
+  precondition([executed(RunId, Runner, Suite, TC) || TC <:- TCs]).
 
 %%--------------------------------------------------------------------------
 %% Internal exports
@@ -109,7 +142,11 @@ run(#suite{suite = Suite, runner = Runner, tcs = TCs}) ->
 %% Internal functions
 %%--------------------------------------------------------------------------
 
-?MEMO(executed, Runner, Suite, TC,
+%% RunId is a dummy argument that's not used by the logic of the memo.
+%% It's part of the memoization key, so a failed (e.g. flaky) test case
+%% can be re-run with a different RunId, without memoization getting in
+%% the way:
+?MEMO(executed, RunId, Runner, Suite, TC,
       begin
         precondition(dist_started()),
         #tc{name = Fun, inst = Instance, fixtures = Fixtures, timeout = Timeout} = TC,
@@ -130,39 +167,44 @@ run(#suite{suite = Suite, runner = Runner, tcs = TCs}) ->
                                                   , fixtures => Fixtures
                                                   }),
         Env = #{instance => Instance},
-        try
-          RpcTimeout = case Timeout of
-                          infinity -> infinity;
-                          _        -> Timeout + ?TIMEOUT_GRACE_PERIOD
-                        end,
-          case familiar:call(Site, ?MODULE, run_test_with_timeout,
-                             [Runner, Suite, Fun, Env, Timeout], RpcTimeout) of
-            #tc_error{class = timeout, stack = TCStack} ->
-              MsgFail = anvl_logger_formatter:format(
-                          error,
-                          "❌ ~p:~p(~P) timed out, stack of the test process:~n~p",
-                          [Suite, Fun, Instance, 10, TCStack]),
-              ?UNSAT(MsgFail, []);
-            #tc_error{class = Class, reason = Reason, stack = Stack} ->
-              MsgFail = anvl_logger_formatter:format(
-                          error,
-                          "❌ ~p:~p(~P)~n~p:~p~n~p",
-                          [Suite, Fun, Instance, 10, Class, Reason, Stack]),
-              ?UNSAT(MsgFail, []);
-            ok ->
-              Msg = anvl_logger_formatter:format(
-                      success,
-                      "✅ ~p:~p(~P)",
-                      [Suite, Fun, Instance, 10]),
-              ?LOG_NOTICE(Msg)
-          end
-        catch
-          InfraClass:InfraReason:Stacktrace ->
-            MsgFailInfra = anvl_logger_formatter:format(
-                        error,
-                        "❌ ~p:~p(~P)~n~p:~p~n~p",
-                        [Suite, Fun, Instance, 10, InfraClass, InfraReason, Stacktrace]),
-            ?UNSAT(MsgFailInfra, [])
+        RpcTimeout = case Timeout of
+                        infinity -> infinity;
+                        _        -> Timeout + ?TIMEOUT_GRACE_PERIOD
+                      end,
+        case familiar:call(Site, ?MODULE, run_test_with_timeout,
+                           [Runner, Suite, Fun, Env, Timeout], RpcTimeout) of
+          ok ->
+            _ = anvl_hook:foreach(on_test_success, #{ run_id => RunId
+                                                   , runner => Runner
+                                                   , suite  => Suite
+                                                   , tc     => TC
+                                                   }),
+            Msg = anvl_logger_formatter:format(
+                    success,
+                    "✅ ~p:~p(~P)",
+                    [Suite, Fun, Instance, 10]),
+            ?LOG_NOTICE(Msg);
+          #tc_error{} = Result ->
+            _ = anvl_hook:foreach(on_test_fail, #{ run_id => RunId
+                                                 , runner => Runner
+                                                 , suite  => Suite
+                                                 , tc     => TC
+                                                 , result => Result
+                                                 }),
+            case Result of
+              #tc_error{class = timeout, stack = TCStack} ->
+                MsgFail = anvl_logger_formatter:format(
+                            error,
+                            "❌ ~p:~p(~P) timed out, stack of the test process:~n~p",
+                            [Suite, Fun, Instance, 10, TCStack]),
+                ?UNSAT(MsgFail, []);
+              #tc_error{class = Class, reason = Reason, stack = Stack} ->
+                MsgFail = anvl_logger_formatter:format(
+                            error,
+                            "❌ ~p:~p(~P)~n~p:~p~n~p",
+                            [Suite, Fun, Instance, 10, Class, Reason, Stack]),
+                ?UNSAT(MsgFail, [])
+            end
         end,
         true
       end).

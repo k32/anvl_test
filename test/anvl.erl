@@ -74,14 +74,14 @@ conf() ->
              precondition(built()),
              {ok, Suite} = anvl_test_suite:load(att0),
              anvl_hook:add(on_test_success,
-                           fun(#{tc := #tc{}, workdir := _} = Arg) ->
+                           fun({#{tc := #tc{}, workdir := _} = Arg, HookIO}) ->
                                ?tp(on_testcase_success, Arg),
-                               false
+                               {Arg, HookIO}
                            end),
              anvl_hook:add(on_test_fail,
-                            fun({#{result := #tc_error{}, workdir := _} = Arg, Retry, Fail}) ->
+                            fun({#{result := #tc_error{}, workdir := _} = Arg, Retry, Fail, HookIO}) ->
                                 ?tp(on_testcase_fail, Arg),
-                                {Arg, Retry, Fail}
+                                {Arg, Retry, Fail, HookIO}
                            end),
              anvl_hook:add(on_test_success, fun selftest_on_success/1),
              anvl_hook:add(on_test_fail, fun selftest_on_fail/1),
@@ -116,23 +116,25 @@ expected_failures() ->
   , {att0, sleepy, default}
   ].
 
-selftest_on_success(#{ suite := Suite
-                     , tc := #tc{name = Name, inst = Inst}
-                     }) ->
+selftest_on_success({#{ suite := Suite
+                        , tc := #tc{name = Name, inst = Inst}
+                        } = Arg,
+                       HookIO}) ->
   case lists:member({Suite, Name, Inst}, expected_failures()) of
     true  -> error({testcase_unexpectedly_passed, Suite, Name, Inst});
-    false -> false
+    false -> {Arg, HookIO}
   end.
 
 selftest_on_fail({#{ suite := Suite
                    , tc := #tc{name = Name, inst = Inst}
                    } = Arg,
                   Retry,
-                  Fail}) ->
+                  Fail,
+                  HookIO}) ->
   case lists:member({Suite, Name, Inst}, expected_failures()) of
     true ->
       logger:notice("~p:~p(~p): this failure is expected", [Suite, Name, Inst]),
-      {Arg, Retry, false};
+      {Arg, Retry, false, HookIO};
     false ->
-      {Arg, Retry, Fail}
+      {Arg, Retry, Fail, HookIO}
   end.

@@ -27,16 +27,22 @@ The plugin defines the following hook points:
 
 @item
 @code{on_test_success}: called when a test case run succeeds.
-The hooks take a map of type @code{anvl_test:on_test_success_arg()}.
+The hooks are folded over an accumulator of type @code{anvl_test:on_test_success_acc()}:
+a tuple of the argument map of type @code{anvl_test:on_test_success_arg()}
+and an iolist.
+The hooks append their log messages to the iolist,
+and the plugin prints it after all hooks complete.
 
 @item
 @code{on_test_fail}: called when a test case run fails,
 e.g. it crashed or timed out.
 The hooks are folded over an accumulator of type @code{anvl_test:on_test_fail_acc()}:
-a tuple of the argument map of type @code{anvl_test:on_test_fail_arg()}
-and the @code{@{Retry, Fail@}} flags.
+a tuple of the argument map of type @code{anvl_test:on_test_fail_arg()},
+the @code{@{Retry, Fail@}} flags and an iolist.
 Setting @code{Retry} requests re-execution of the test case,
 and resetting @code{Fail} prevents the condition from failing.
+The hooks append their log messages to the iolist,
+and the plugin prints it after all hooks complete.
 
 @end itemize
 
@@ -46,7 +52,8 @@ The plugin itself installs default hooks that log the outcome of each test case 
 %% behavior callbacks:
 -export([model/0, project_model/0, init/0, init_for_project/1]).
 
--export_type([suite/0, run_id/0, on_test_success_arg/0, on_test_fail_arg/0, on_test_fail_acc/0]).
+-export_type([suite/0, run_id/0, on_test_success_arg/0, on_test_success_acc/0,
+              on_test_fail_arg/0, on_test_fail_acc/0]).
 
 %% API:
 -export([run/2]).
@@ -78,6 +85,12 @@ The plugin itself installs default hooks that log the outcome of each test case 
          , workdir := file:filename_all()
          }.
 
+%% Accumulator of the on_test_success hooks:
+-type on_test_success_acc() ::
+        { on_test_success_arg()
+        , IO :: iolist()
+        }.
+
 -type on_test_fail_arg() ::
         #{ run_id  := run_id()
          , runner  := module()
@@ -92,6 +105,7 @@ The plugin itself installs default hooks that log the outcome of each test case 
         { on_test_fail_arg()
         , Retry :: boolean()
         , Fail  :: boolean()
+        , IO    :: iolist()
         }.
 
 
@@ -255,12 +269,14 @@ run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
             end),
         case Result of
           ok ->
-            _ = anvl_hook:foreach(on_test_success, #{ run_id => RunId
-                                                    , runner => Runner
-                                                    , suite  => Suite
-                                                    , tc     => TC
-                                                    , workdir => Workdir
-                                                    }),
+            Arg = #{ run_id => RunId
+                   , runner => Runner
+                   , suite  => Suite
+                   , tc     => TC
+                   , workdir => Workdir
+                   },
+            {_Arg, HookIO} = anvl_hook:fold(on_test_success, {Arg, []}),
+            ?LOG_NOTICE("~ts", [HookIO]),
             true;
           #tc_error{} ->
             Arg = #{ run_id => RunId
@@ -270,7 +286,8 @@ run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
                    , workdir => Workdir
                    , result => Result
                    },
-            {_Arg, _Retry, Fail} = anvl_hook:fold(on_test_fail, {Arg, false, true}),
+            {_Arg, _Retry, Fail, HookIO} = anvl_hook:fold(on_test_fail, {Arg, false, true, []}),
+            ?LOG_ERROR("~ts", [HookIO]),
             %% TODO: When Retry is true, re-run the test case with a fresh RunId
             case Fail of
               true  -> exit(unsat);
@@ -316,16 +333,16 @@ install_default_hooks() ->
   anvl_hook:add(on_test_fail, fun log_test_fail/1),
   ok.
 
--spec log_test_success(on_test_success_arg()) -> false.
-log_test_success(#{ suite := Suite
-                  , tc := #tc{name = Fun, inst = Instance}
-                  }) ->
+-spec log_test_success(on_test_success_acc()) -> on_test_success_acc().
+log_test_success({#{ suite := Suite
+                   , tc := #tc{name = Fun, inst = Instance}
+                   } = Arg,
+                  HookIO}) ->
   Msg = anvl_logger_formatter:format(
           success,
           "✅ ~p:~p(~P)",
           [Suite, Fun, Instance, 10]),
-  ?LOG_NOTICE(Msg),
-  false.
+  {Arg, [HookIO, Msg]}.
 
 -spec log_test_fail(on_test_fail_acc()) -> on_test_fail_acc().
 log_test_fail({#{ suite := Suite
@@ -334,7 +351,8 @@ log_test_fail({#{ suite := Suite
                 , result := Result
                 } = Arg,
                Retry,
-               Fail}) ->
+               Fail,
+               HookIO}) ->
   MsgFail =
     case Result of
       #tc_error{class = timeout, stack = TCStack} ->
@@ -348,8 +366,7 @@ log_test_fail({#{ suite := Suite
           "❌ ~p:~p(~P)~nworkdir: ~s~n~p:~p~n~p",
           [Suite, Fun, Instance, 10, Workdir, Class, Reason, Stack])
     end,
-  ?LOG_CRITICAL(MsgFail),
-  {Arg, Retry, Fail}.
+  {Arg, Retry, Fail, [HookIO, MsgFail]}.
 
 ?MEMO(dist_started,
       begin

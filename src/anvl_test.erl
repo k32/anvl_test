@@ -175,26 +175,35 @@ run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
                 , net      => {127, N1, N2, 0}
                 , subnet   => 24
                 },
-        ok = familiar:start_link_cluster(Conf),
-        {ok, Site, _Node} = familiar:create_site(Cluster, SiteId,
-                                                 #{ start => true
-                                                  , fixtures => Fixtures
-                                                  }),
-        Env = #{instance => Instance},
-        RpcTimeout = case Timeout of
-                        infinity -> infinity;
-                        _        -> Timeout + ?TIMEOUT_GRACE_PERIOD
-                      end,
-        case familiar:call(Site, ?MODULE, run_test_with_timeout,
-                           [Runner, Suite, Fun, Env, Timeout], RpcTimeout) of
+        %% Limit the number of test cases running in parallel. Note: the
+        %% resource cannot be held while invoking preconditions, so the
+        %% result handling is kept outside of the critical section:
+        Result =
+          anvl_resource:with(
+            anvl_test,
+            fun() ->
+                ok = familiar:start_link_cluster(Conf),
+                {ok, Site, _Node} = familiar:create_site(Cluster, SiteId,
+                                                         #{ start => true
+                                                          , fixtures => Fixtures
+                                                          }),
+                Env = #{instance => Instance},
+                RpcTimeout = case Timeout of
+                                infinity -> infinity;
+                                _        -> Timeout + ?TIMEOUT_GRACE_PERIOD
+                              end,
+                familiar:call(Site, ?MODULE, run_test_with_timeout,
+                              [Runner, Suite, Fun, Env, Timeout], RpcTimeout)
+            end),
+        case Result of
           ok ->
             _ = anvl_hook:foreach(on_test_success, #{ run_id => RunId
-                                                   , runner => Runner
-                                                   , suite  => Suite
-                                                   , tc     => TC
-                                                   }),
+                                                    , runner => Runner
+                                                    , suite  => Suite
+                                                    , tc     => TC
+                                                    }),
             true;
-          #tc_error{} = Result ->
+          #tc_error{} ->
             Arg = #{ run_id => RunId
                    , runner => Runner
                    , suite  => Suite
@@ -207,8 +216,7 @@ run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
               true  -> exit(unsat);
               false -> true
             end
-        end,
-        true
+        end
       end).
 
 -doc false.

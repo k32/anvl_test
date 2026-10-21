@@ -20,7 +20,46 @@
 -module(anvl_test_suite).
 -moduledoc """
 This module contains functions for interfacing with the test suites.
+
+A test suite is an Erlang module implementing the @code{anvl_test_suite} behavior.
+Each test case of the suite is a function of arity 2,
+with the first argument selecting the @i{method} to execute:
+
+@itemize
+
+@item
+@code{@{Test@}(run, Env)}: execute the test case.
+@code{Env} is a map with at least the @code{instance} key.
+This is the only mandatory method:
+all other methods are optional and have sane defaults.
+
+@item
+@code{@{Test@}(instances, Env)}: return the list of instances of the test case.
+The test case function is executed once for each instance,
+with the instance value passed in @code{Env}.
+Default: @code{[default]}.
+
+@item
+@code{@{Test@}(tags, Env)}: return the list of tags of the test case instance.
+Tags can be used for selecting a subset of the test cases for execution.
+Default: @code{[]}.
+
+@item
+@code{@{Test@}(fixtures, Env)}: return the list of fixtures of the test case instance.
+Fixtures are passed to the @code{familiar} library and control the environment of the isolated node where the test case runs.
+Default: global fixtures of the suite.
+
+@item
+@code{@{Test@}(timeout, Env)}: return the execution timeout of the test case instance, in milliseconds.
+Default: the global timeout of the suite.
+
+@end itemize
+
+Suite-global values for tags, fixtures, instances and timeout can be provided by implementing the corresponding callbacks of the behavior,
+e.g. @code{tags/0} or @code{timeout/0}.
 """.
+
+-define(DEFAULT_TC_TIMEOUT, 30000).
 
 -behavior(anvl_test_runner).
 
@@ -62,7 +101,14 @@ This module contains functions for interfacing with the test suites.
 
 -callback instances() -> instances().
 
--optional_callbacks([tags/0, fixtures/0, instances/0]).
+-doc """
+Return the default timeout for the test cases of the suite, in milliseconds.
+
+This value is used for the test cases that don't override the timeout individually.
+""".
+-callback timeout() -> timeout().
+
+-optional_callbacks([tags/0, fixtures/0, instances/0, timeout/0]).
 
 %%--------------------------------------------------------------------------
 %% API
@@ -99,7 +145,9 @@ load(Module) ->
     ok ?= validate_fixtures(GlobalFixtures),
     {ok, GlobalInstances} ?= opt_call(Module, instances, [], [default]),
     ok ?= validate_instances(GlobalInstances),
-    {ok, TCs} ?= tcs(Module, GlobalFixtures, GlobalInstances, Tests, []),
+    {ok, GlobalTimeout} ?= opt_call(Module, timeout, [], ?DEFAULT_TC_TIMEOUT),
+    ok ?= validate_timeout(GlobalTimeout),
+    {ok, TCs} ?= tcs(Module, GlobalFixtures, GlobalInstances, GlobalTimeout, Tests, []),
     {ok, #suite{ suite = Module
                , runner = anvl_test_suite
                , tests = Tests
@@ -138,27 +186,29 @@ load_suites([Module | Rest], Acc, Failed) ->
       load_suites(Rest, Acc, true)
   end.
 
-tcs(_Module, _GlobalFixtures, _GlobalInstances, [], Acc) ->
+tcs(_Module, _GlobalFixtures, _GlobalInstances, _GlobalTimeout, [], Acc) ->
   {ok, Acc};
-tcs(Module, GlobalFixtures, GlobalInstances, [Test | Rest], Acc) ->
+tcs(Module, GlobalFixtures, GlobalInstances, GlobalTimeout, [Test | Rest], Acc) ->
   maybe
     {ok, Instances} ?= get_instances(Module, Test, GlobalInstances),
-    {ok, TCs} ?= tcs1(Module, GlobalFixtures, Test, Instances, []),
-    tcs(Module, GlobalFixtures, GlobalInstances, Rest, TCs ++ Acc)
+    {ok, TCs} ?= tcs1(Module, GlobalFixtures, GlobalTimeout, Test, Instances, []),
+    tcs(Module, GlobalFixtures, GlobalInstances, GlobalTimeout, Rest, TCs ++ Acc)
   end.
 
-tcs1(_Module, _GlobalFixtures, _Test, [], Acc) ->
+tcs1(_Module, _GlobalFixtures, _GlobalTimeout, _Test, [], Acc) ->
   {ok, Acc};
-tcs1(Module, GlobalFixtures, Test, [Inst | Rest], Acc) ->
+tcs1(Module, GlobalFixtures, GlobalTimeout, Test, [Inst | Rest], Acc) ->
   maybe
     {ok, Tags} ?= get_tags(Module, Test, Inst),
     {ok, Fixtures} ?= get_fixtures(Module, Test, Inst, GlobalFixtures),
+    {ok, Timeout} ?= get_timeout(Module, Test, Inst, GlobalTimeout),
     TC = #tc{ name = Test
             , inst = Inst
             , tags = Tags
             , fixtures = Fixtures
+            , timeout = Timeout
             },
-    tcs1(Module, GlobalFixtures, Test, Rest, [TC | Acc])
+    tcs1(Module, GlobalFixtures, GlobalTimeout, Test, Rest, [TC | Acc])
   end.
 
 get_tags(Module, Test, Instance) ->
@@ -181,6 +231,18 @@ get_fixtures(Module, Test, Instance, GlobalFixtures) ->
   else
     undefined ->
       {ok, GlobalFixtures};
+    {error, Err} ->
+      {error, [Module, Test, Instance], Err}
+  end.
+
+get_timeout(Module, Test, Instance, GlobalTimeout) ->
+  maybe
+    {ok, Timeout} ?= ?MODULE:invoke_method(Module, Test, timeout, #{instance => Instance}),
+    ok ?= validate_timeout(Timeout),
+    {ok, Timeout}
+  else
+    undefined ->
+      {ok, GlobalTimeout};
     {error, Err} ->
       {error, [Module, Test, Instance], Err}
   end.
@@ -263,3 +325,8 @@ validate_fixtures(L) ->
     {error, Err} ->
       {error, {bad_fixtures, Err}}
   end.
+
+validate_timeout(T) when is_integer(T), T >= 0; T =:= infinity ->
+  ok;
+validate_timeout(T) ->
+  {error, {bad_timeout, T}}.

@@ -6,6 +6,7 @@
         , inst :: anvl_test_suite:instance()
         , tags :: list()
         , fixtures :: [anvl_test_suite:fixture()]
+        , timeout :: timeout()
         }).
 
 -record(suite,

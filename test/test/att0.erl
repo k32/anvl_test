@@ -16,6 +16,8 @@ foo(tags, #{instance := Inst}) ->
     1 -> [tag_1];
     2 -> [tag_2]
   end;
+foo(timeout, #{instance := 1}) ->
+  1000;
 foo(run, #{instance := _}) ->
   ok.
 

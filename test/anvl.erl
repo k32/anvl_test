@@ -34,9 +34,9 @@ conf() ->
                      , tcs = TCs0
                      }]} = anvl_test_suite:discover(test, anvl_test_test),
         [foo, parent_node_is_hidden] = lists:sort(Tests0),
-        [ #tc{name = foo, inst = 1, tags = [tag_1]}
-        , #tc{name = foo, inst = 2, tags = [tag_2]}
-        , #tc{name = parent_node_is_hidden, inst = default, tags = []}
+        [ #tc{name = foo, inst = 1, tags = [tag_1], timeout = 1000}
+        , #tc{name = foo, inst = 2, tags = [tag_2], timeout = 30000}
+        , #tc{name = parent_node_is_hidden, inst = default, tags = [], timeout = 30000}
         ] = lists:sort(TCs0),
         false
       end).
@@ -52,9 +52,9 @@ conf() ->
               , tcs = TCs0
               } = Suite0,
         [foo, parent_node_is_hidden] = lists:sort(Tests0),
-        [ #tc{name = foo, inst = 1, tags = [tag_1]}
-        , #tc{name = foo, inst = 2, tags = [tag_2]}
-        , #tc{name = parent_node_is_hidden, inst = default, tags = []}
+        [ #tc{name = foo, inst = 1, tags = [tag_1], timeout = 1000}
+        , #tc{name = foo, inst = 2, tags = [tag_2], timeout = 30000}
+        , #tc{name = parent_node_is_hidden, inst = default, tags = [], timeout = 30000}
         ] = lists:sort(TCs0),
         false
       end).

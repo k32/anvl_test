@@ -92,7 +92,7 @@ project_model() ->
 %%--------------------------------------------------------------------------
 
 run(#suite{suite = Suite, runner = Runner, tcs = TCs}) ->
-  precondition([executed(Runner, Fixtures, Suite, Name, Inst) || #tc{name = Name, inst = Inst, fixtures = Fixtures} <:- TCs]).
+  precondition([executed(Runner, Suite, TC) || TC <:- TCs]).
 
 %%--------------------------------------------------------------------------
 %% Internal exports
@@ -102,9 +102,10 @@ run(#suite{suite = Suite, runner = Runner, tcs = TCs}) ->
 %% Internal functions
 %%--------------------------------------------------------------------------
 
-?MEMO(executed, Runner, Fixtures, Suite, Fun, Instance,
+?MEMO(executed, Runner, Suite, TC,
       begin
         precondition(dist_started()),
+        #tc{name = Fun, inst = Instance, fixtures = Fixtures, timeout = Timeout} = TC,
         SiteId = list_to_binary(peer:random_name(atom_to_list(Fun))),
         Cluster = SiteId,
         %% FIXME:
@@ -123,7 +124,7 @@ run(#suite{suite = Suite, runner = Runner, tcs = TCs}) ->
                                                   }),
         Env = #{instance => Instance},
         try
-          familiar:call(Site, Runner, run_test, [Suite, Fun, Env]),
+          familiar:call(Site, Runner, run_test, [Suite, Fun, Env], Timeout),
           Msg = anvl_logger_formatter:format(
                   success,
                   "✅ ~p:~p(~P)",

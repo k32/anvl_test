@@ -8,6 +8,13 @@ Test suite that doesn't have any global tags or fixtures.
 -include_lib("anvl_test/include/anvl_test.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
+%% Override a fixture that anvl_test sets itself, to check the warning:
+-export([fixtures/0]).
+fixtures() ->
+  [ {familiar_code_path, #{}}
+  , {familiar_workdir, #{}}
+  ].
+
 -test(foo).
 foo(instances, _) ->
   [1, 2];

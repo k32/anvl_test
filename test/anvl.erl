@@ -74,12 +74,12 @@ conf() ->
              precondition(built()),
              {ok, Suite} = anvl_test_suite:load(att0),
              anvl_hook:add(on_test_success,
-                           fun(#{tc := #tc{}} = Arg) ->
+                           fun(#{tc := #tc{}, workdir := _} = Arg) ->
                                ?tp(on_testcase_success, Arg),
                                false
                            end),
              anvl_hook:add(on_test_fail,
-                            fun({#{result := #tc_error{}} = Arg, Retry, Fail}) ->
+                            fun({#{result := #tc_error{}, workdir := _} = Arg, Retry, Fail}) ->
                                 ?tp(on_testcase_fail, Arg),
                                 {Arg, Retry, Fail}
                            end),

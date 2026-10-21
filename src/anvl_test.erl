@@ -71,18 +71,20 @@ The plugin itself installs default hooks that log the outcome of each test case 
 -type run_id() :: term().
 
 -type on_test_success_arg() ::
-        #{ run_id := run_id()
-         , runner := module()
-         , suite  := suite()
-         , tc     := #tc{}
+        #{ run_id  := run_id()
+         , runner  := module()
+         , suite   := suite()
+         , tc      := #tc{}
+         , workdir := file:filename_all()
          }.
 
 -type on_test_fail_arg() ::
-        #{ run_id := run_id()
-         , runner := module()
-         , suite  := suite()
-         , tc     := #tc{}
-         , result := #tc_error{}
+        #{ run_id  := run_id()
+         , runner  := module()
+         , suite   := suite()
+         , tc      := #tc{}
+         , workdir := file:filename_all()
+         , result  := #tc_error{}
          }.
 
 %% Accumulator of the on_test_fail hooks:
@@ -133,6 +135,22 @@ model() ->
               , cli_operand => "test-net"
               , os_env => "TEST_NET"
               }}
+        , log_level =>
+            {[value, cli_param, os_env],
+             #{ oneliner => "Log level of the test nodes"
+              , type => typerefl:union([debug, info, notice, warning, error, critical, alert, emergency])
+              , default => info
+              , cli_operand => "test-log-level"
+              , os_env => "TEST_LOG_LEVEL"
+              }}
+        , log_handler_config =>
+            {[value, cli_param, os_env],
+             #{ oneliner => "Logger handler configuration of the test nodes, merged over the defaults"
+              , type => map()
+              , default => #{}
+              , cli_operand => "test-log-handler-config"
+              , os_env => "TEST_LOG_HANDLER_CONFIG"
+              }}
         , tests =>
             {[map, cli_action],
              #{ oneliner => "Ad-hoc test jobs"
@@ -151,6 +169,29 @@ project_model() ->
 %%--------------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------------
+
+%% Each test case cluster runs in a dedicated working directory created by
+%% the familiar_workdir fixture, and familiar_logger writes the node logs
+%% there. These fixtures are mandatory: the user cannot override them:
+-spec ensure_default_fixtures([familiar:fixture()]) -> [familiar:fixture()].
+ensure_default_fixtures(Fixtures0) ->
+  LogLevel = anvl_plugin:conf([anvl_test, log_level]),
+  HandlerConfig =
+    maps:merge(#{level => LogLevel}, anvl_plugin:conf([anvl_test, log_handler_config])),
+  Defaults = [ {familiar_workdir, #{}}
+             , {familiar_logger, #{ primary_config => #{level => LogLevel}
+                                  , handler_config => HandlerConfig
+                                  }}
+             ],
+  Overrides = [F || {F, _} <- Fixtures0, lists:keymember(F, 1, Defaults)],
+  case Overrides of
+    [] ->
+      ok;
+    _ ->
+      ?LOG_WARNING("~p fixtures are mandatory and cannot be overridden", [Overrides])
+  end,
+  Fixtures = [Fix || {F, _} = Fix <- Fixtures0, not lists:keymember(F, 1, Defaults)],
+  Defaults ++ Fixtures.
 
 -spec run(run_id(), #suite{}) -> boolean().
 run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
@@ -171,13 +212,14 @@ run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
 ?MEMO(executed, RunId, Runner, Suite, TC,
       begin
         precondition(dist_started()),
-        #tc{name = Fun, inst = Instance, fixtures = Fixtures, timeout = Timeout} = TC,
+        #tc{name = Fun, inst = Instance, fixtures = Fixtures0, timeout = Timeout} = TC,
         SiteId = list_to_binary(peer:random_name(atom_to_list(Fun))),
         Cluster = SiteId,
         %% Limit the number of test cases running in parallel. Note: the
         %% resource cannot be held while invoking preconditions, so the
         %% result handling is kept outside of the critical section:
-        Result =
+        Fixtures = ensure_default_fixtures(Fixtures0),
+        {Result, Workdir} =
           anvl_resource:with(
             anvl_test,
             fun() ->
@@ -191,17 +233,22 @@ run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
                           , subnet   => 24
                           },
                   ok = familiar:start_link_cluster(Conf),
+                  %% Note: the cluster fixtures propagate to the sites, so
+                  %% they must not be repeated in the site spec:
                   {ok, Site, _Node} = familiar:create_site(Cluster, SiteId,
                                                            #{ start => true
-                                                            , fixtures => Fixtures
                                                             }),
+                  %% CWD of the site is the workdir created by the fixture:
+                  {ok, Workdir} = familiar:call(Site, file, get_cwd, []),
                   Env = #{instance => Instance, net => Subnet, subnet => 24},
                   RpcTimeout = case Timeout of
                                   infinity -> infinity;
                                   _        -> Timeout + ?TIMEOUT_GRACE_PERIOD
                                 end,
-                  familiar:call(Site, ?MODULE, run_test_with_timeout,
-                                [Runner, Suite, Fun, Env, Timeout], RpcTimeout)
+                  Result =
+                    familiar:call(Site, ?MODULE, run_test_with_timeout,
+                                  [Runner, Suite, Fun, Env, Timeout], RpcTimeout),
+                  {Result, Workdir}
                 after
                   anvl_test_subnet:release(Subnet)
                 end
@@ -212,6 +259,7 @@ run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
                                                     , runner => Runner
                                                     , suite  => Suite
                                                     , tc     => TC
+                                                    , workdir => Workdir
                                                     }),
             true;
           #tc_error{} ->
@@ -219,6 +267,7 @@ run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
                    , runner => Runner
                    , suite  => Suite
                    , tc     => TC
+                   , workdir => Workdir
                    , result => Result
                    },
             {_Arg, _Retry, Fail} = anvl_hook:fold(on_test_fail, {Arg, false, true}),
@@ -281,6 +330,7 @@ log_test_success(#{ suite := Suite
 -spec log_test_fail(on_test_fail_acc()) -> on_test_fail_acc().
 log_test_fail({#{ suite := Suite
                 , tc := #tc{name = Fun, inst = Instance}
+                , workdir := Workdir
                 , result := Result
                 } = Arg,
                Retry,
@@ -290,13 +340,13 @@ log_test_fail({#{ suite := Suite
       #tc_error{class = timeout, stack = TCStack} ->
         anvl_logger_formatter:format(
           error,
-          "❌ ~p:~p(~P) timed out, stack of the test process:~n~p",
-          [Suite, Fun, Instance, 10, TCStack]);
+          "❌ ~p:~p(~P)~nworkdir: ~s~ntimed out, stack of the test process:~n~p",
+          [Suite, Fun, Instance, 10, Workdir, TCStack]);
       #tc_error{class = Class, reason = Reason, stack = Stack} ->
         anvl_logger_formatter:format(
           error,
-          "❌ ~p:~p(~P)~n~p:~p~n~p",
-          [Suite, Fun, Instance, 10, Class, Reason, Stack])
+          "❌ ~p:~p(~P)~nworkdir: ~s~n~p:~p~n~p",
+          [Suite, Fun, Instance, 10, Workdir, Class, Reason, Stack])
     end,
   ?LOG_CRITICAL(MsgFail),
   {Arg, Retry, Fail}.

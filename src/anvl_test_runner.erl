@@ -38,7 +38,11 @@ and @code{Env} is the environment passed to the test case.
 The callback is invoked on the test site,
 so the test case runs in the isolated node.
 """.
--callback run_test(Module :: anvl_test:suite(), Test :: atom(), Env :: map(), Timeout :: timeout()) -> term().
+-callback run_test(Module :: anvl_test:suite(),
+                   Test :: atom(),
+                   Env :: map(),
+                   Timeout :: timeout()) ->
+        term().
 
 -doc """
 Discover test suites of an OTP application.
@@ -49,4 +53,5 @@ In the latter case the returned suites can still be run,
 but the whole run must fail in the end,
 because the test selection is incomplete.
 """.
--callback discover(anvl_erlc:profile(), anvl_erlc:application()) -> {ok, [#suite{}]} | {error, [#suite{}]}.
+-callback discover(anvl_erlc:profile(), anvl_erlc:application()) ->
+        {ok, [#suite{}]} | {error, [#suite{}]}.

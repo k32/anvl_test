@@ -214,7 +214,8 @@ run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
 %% so the watchdog aborts the execution of the test case there:
 %% Errors of the test case are returned as records
 %% instead of exceptions, to distinguish them from infrastructure errors:
--spec run_test_with_timeout(module(), module(), atom(), map(), timeout()) -> ok | #tc_error{}.
+-spec run_test_with_timeout(module(), module(), atom(), map(), timeout()) ->
+        ok | #tc_error{}.
 run_test_with_timeout(Runner, Suite, Fun, Env, Timeout) ->
   Parent = self(),
   Pid = proc_lib:spawn(fun() ->

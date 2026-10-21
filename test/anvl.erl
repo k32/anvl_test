@@ -96,8 +96,9 @@ conf() ->
              true = anvl_test:run(make_ref(), Suite)
            end,
            fun(Trace) ->
+               Successes = ?of_kind(on_testcase_success, Trace),
                [foo, foo, parent_node_is_hidden] =
-                 lists:sort([Name || #{tc := #tc{name = Name}} <- ?of_kind(on_testcase_success, Trace)]),
+                 lists:sort([Name || #{tc := #tc{name = Name}} <- Successes]),
                [] = ?of_kind(on_testcase_fail, Trace),
                ok
            end),

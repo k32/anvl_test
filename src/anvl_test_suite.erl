@@ -164,7 +164,8 @@ load(Module) ->
       Err
   end.
 
--spec discover(anvl_erlc:profile(), anvl_erlc:application()) -> {ok, [#suite{}]} | {error, [#suite{}]}.
+-spec discover(anvl_erlc:profile(), anvl_erlc:application()) ->
+        {ok, [#suite{}]} | {error, [#suite{}]}.
 discover(Profile, App) ->
   _ = precondition(anvl_erlc:app_compiled(Profile, App)),
   Modules = [Module
@@ -173,7 +174,8 @@ discover(Profile, App) ->
                 Key =:= behaviour orelse Key =:= behavior],
   load_suites(Modules, [], false).
 
--spec load_suites([module()], [#suite{}], boolean()) -> {ok, [#suite{}]} | {error, [#suite{}]}.
+-spec load_suites([module()], [#suite{}], boolean()) ->
+        {ok, [#suite{}]} | {error, [#suite{}]}.
 load_suites([], Acc, false) ->
   {ok, Acc};
 load_suites([], Acc, true) ->

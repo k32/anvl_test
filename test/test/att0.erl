@@ -8,9 +8,6 @@ Test suite that doesn't have any global tags or fixtures.
 -include_lib("anvl_test/include/anvl_test.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
-%% Helper for testing the timeout logic. Not a test case:
--export([sleepy/2]).
-
 -test(foo).
 foo(instances, _) ->
   [1, 2];
@@ -31,6 +28,14 @@ parent_node_is_hidden(crash, Env) ->
   %% This branch should be unreachable
   error(Env).
 
+-test(expected_fail).
+expected_fail(run, #{instance := _}) ->
+  error(expected_fail).
+
+%% This test case is expected to time out:
+-test(sleepy).
+sleepy(timeout, #{instance := _}) ->
+  200;
 sleepy(run, #{instance := _}) ->
   receive after infinity -> ok end.
 

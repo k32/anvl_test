@@ -50,7 +50,8 @@ The hooks take the profile and the application name as arguments,
 and return @code{@{ok, Suites@}} or @code{@{error, Suites@}},
 with the same semantics as @code{anvl_test_suite:discover/2}.
 The plugin combines the results of all hooks into a single tuple of the same shape.
-The default hook uses @code{anvl_test_suite:discover/2}.
+The default hooks use @code{anvl_test_suite:discover/2}
+and @code{anvl_test_eunit:discover/2}.
 
 @end itemize
 
@@ -367,6 +368,7 @@ install_default_hooks() ->
   anvl_hook:add(on_test_success, fun log_test_success/1),
   anvl_hook:add(on_test_fail, fun log_test_fail/1),
   anvl_hook:add(anvl_test_discover, fun anvl_test_suite:discover/2),
+  anvl_hook:add(anvl_test_discover, fun anvl_test_eunit:discover/2),
   ok.
 
 -spec log_test_success(on_test_success_acc()) -> on_test_success_acc().

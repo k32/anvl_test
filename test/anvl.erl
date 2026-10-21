@@ -31,12 +31,32 @@ conf() ->
       begin
         precondition(built()),
         %% The suites are discovered via the anvl_test_discover hooks:
-        {ok, [#suite{ suite = att0
-                    , runner = anvl_test_suite
-                    , tests = Tests0
-                    , tags = []
-                    , tcs = TCs0
-                    }]} = anvl_test:discover(test, anvl_test_test),
+        {ok, Suites0} = anvl_test:discover(test, anvl_test_test),
+        [ #suite{ suite = att0
+                , runner = anvl_test_suite
+                , tests = Tests0
+                , tags = []
+                , tcs = TCs0
+                }
+        , #suite{ suite = att_eunit
+                , runner = anvl_test_eunit
+                , tests = [eunit]
+                , tags = []
+                , tcs = [#tc{ name = eunit
+                            , inst = default
+                            , timeout = infinity
+                            }]
+                }
+        , #suite{ suite = att_eunit_fail
+                , runner = anvl_test_eunit
+                , tests = [eunit]
+                , tags = []
+                , tcs = [#tc{ name = eunit
+                            , inst = default
+                            , timeout = infinity
+                            }]
+                }
+        ] = lists:keysort(#suite.suite, Suites0),
         [expected_fail, foo, parent_node_is_hidden, sleepy] = lists:sort(Tests0),
         [ #tc{name = expected_fail, inst = default, tags = [], timeout = 30000}
         , #tc{name = foo, inst = 1, tags = [tag_1], timeout = 1000}
@@ -74,27 +94,33 @@ conf() ->
            begin
              precondition(built()),
              {ok, Suite} = anvl_test_suite:load(att0),
-             anvl_hook:add(on_test_success,
-                           fun({#{tc := #tc{}, workdir := _} = Arg, HookIO}) ->
-                               ?tp(on_testcase_success, Arg),
-                               {Arg, HookIO}
-                           end),
-             anvl_hook:add(on_test_fail,
-                            fun({#{result := #tc_error{}, workdir := _} = Arg, Retry, Fail, HookIO}) ->
-                                ?tp(on_testcase_fail, Arg),
-                                {Arg, Retry, Fail, HookIO}
-                           end),
-             anvl_hook:add(on_test_success, fun selftest_on_success/1),
-             anvl_hook:add(on_test_fail, fun selftest_on_fail/1),
-             true = anvl_test:run(make_ref(), Suite)
+             register_test_hooks(),
+             true = anvl_test:run(make_ref(), Suite),
+             %% Run the EUnit suites discovered in the same application:
+             {ok, Suites} = anvl_test:discover(test, anvl_test_test),
+             EUnitSuites = [S || #suite{runner = anvl_test_eunit} = S <- Suites],
+             lists:foreach(fun(S) -> true = anvl_test:run(make_ref(), S) end,
+                           EUnitSuites)
            end,
            fun(Trace) ->
                Successes = ?of_kind(on_testcase_success, Trace),
                [foo, foo, parent_node_is_hidden] =
-                 lists:sort([Name || #{tc := #tc{name = Name}} <- Successes]),
+                 lists:sort([Name || #{ suite := att0
+                                      , tc := #tc{name = Name}
+                                      } <- Successes]),
+               [att_eunit] =
+                 [M || #{ suite := M
+                        , tc := #tc{name = eunit}
+                        } <- Successes],
                Fails = ?of_kind(on_testcase_fail, Trace),
                [expected_fail, sleepy] =
-                 lists:sort([Name || #{tc := #tc{name = Name}} <- Fails]),
+                 lists:sort([Name || #{ suite := att0
+                                      , tc := #tc{name = Name}
+                                      } <- Fails]),
+               [att_eunit_fail] =
+                 [M || #{ suite := M
+                        , tc := #tc{name = eunit}
+                        } <- Fails],
                %% The timeout error must carry the stack of the test process:
                [#{result := #tc_error{class = timeout, stack = Stack}}] =
                  [E || #{tc := #tc{name = sleepy}} = E <- Fails],
@@ -119,10 +145,27 @@ conf() ->
 built() ->
   anvl_erlc:app_compiled(test, anvl_test_test).
 
+%% Install hooks that record the test case events as snabbkaffe traces,
+%% plus the self-test hooks checking the expected failures:
+register_test_hooks() ->
+  anvl_hook:add(on_test_success,
+                fun({#{tc := #tc{}, workdir := _} = Arg, HookIO}) ->
+                    ?tp(on_testcase_success, Arg),
+                    {Arg, HookIO}
+                end),
+  anvl_hook:add(on_test_fail,
+                fun({#{result := #tc_error{}, workdir := _} = Arg, Retry, Fail, HookIO}) ->
+                    ?tp(on_testcase_fail, Arg),
+                    {Arg, Retry, Fail, HookIO}
+                end),
+  anvl_hook:add(on_test_success, fun selftest_on_success/1),
+  anvl_hook:add(on_test_fail, fun selftest_on_fail/1).
+
 %% Self-tests: hardcoded list of the test cases that are expected to fail:
 expected_failures() ->
   [ {att0, expected_fail, default}
   , {att0, sleepy, default}
+  , {att_eunit_fail, eunit, default}
   ].
 
 selftest_on_success({#{ suite := Suite

@@ -32,13 +32,22 @@ start_link() ->
 %%================================================================================
 
 init(top) ->
-  Children = [],
+  Children = [ anvl_test_subnet_child_spec() ],
   SupFlags = #{ strategy      => one_for_one
               , intensity     => 10
               , period        => 10
               , auto_shutdown => never
               },
   {ok, {SupFlags, Children}}.
+
+-spec anvl_test_subnet_child_spec() -> supervisor:child_spec().
+anvl_test_subnet_child_spec() ->
+  #{ id       => anvl_test_subnet
+   , start    => {anvl_test_subnet, start_link, []}
+   , shutdown => 5_000
+   , restart  => permanent
+   , type     => worker
+   }.
 
 -spec worker_spec() -> supervisor:child_spec().
 worker_spec() ->

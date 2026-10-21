@@ -29,7 +29,9 @@ with the first argument selecting the @i{method} to execute:
 
 @item
 @code{@{Test@}(run, Env)}: execute the test case.
-@code{Env} is a map with at least the @code{instance} key.
+@code{Env} is a map with at least the @code{instance} key,
+and the @code{net} and @code{subnet} keys with the network settings of the test case,
+matching the corresponding parameters of @code{familiar:start_link_cluster}.
 The execution is aborted if it takes longer than the timeout of the test case.
 This is the only mandatory method:
 all other methods are optional and have sane defaults.

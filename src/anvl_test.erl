@@ -113,7 +113,7 @@ model() ->
        #{ max_jobs =>
             {[value, cli_param, anvl_resource],
              #{ oneliner => "Maximum number of tests running in parallel"
-              , type => non_neg_integer()
+              , type => typerefl:range(1, 255)
               , default => 5
               , cli_operand => "j-test"
               , anvl_resource => anvl_test
@@ -124,6 +124,14 @@ model() ->
               , type => boolean()
               , default => true
               , cli_operand => "erl-cover"
+              }}
+        , net =>
+            {[value, cli_param, os_env],
+             #{ oneliner => "Second octet of the loopback network of the test case clusters"
+              , type => typerefl:range(0, 255)
+              , default => 0
+              , cli_operand => "test-net"
+              , os_env => "TEST_NET"
               }}
         , tests =>
             {[map, cli_action],
@@ -166,15 +174,6 @@ run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
         #tc{name = Fun, inst = Instance, fixtures = Fixtures, timeout = Timeout} = TC,
         SiteId = list_to_binary(peer:random_name(atom_to_list(Fun))),
         Cluster = SiteId,
-        %% FIXME:
-        N1 = rand:uniform(256) - 1,
-        N2 = rand:uniform(256) - 1,
-        Conf = #{ id       => Cluster
-                , fixtures => Fixtures
-                , peer     => #{}
-                , net      => {127, N1, N2, 0}
-                , subnet   => 24
-                },
         %% Limit the number of test cases running in parallel. Note: the
         %% resource cannot be held while invoking preconditions, so the
         %% result handling is kept outside of the critical section:
@@ -182,18 +181,30 @@ run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
           anvl_resource:with(
             anvl_test,
             fun() ->
-                ok = familiar:start_link_cluster(Conf),
-                {ok, Site, _Node} = familiar:create_site(Cluster, SiteId,
-                                                         #{ start => true
-                                                          , fixtures => Fixtures
-                                                          }),
-                Env = #{instance => Instance},
-                RpcTimeout = case Timeout of
-                                infinity -> infinity;
-                                _        -> Timeout + ?TIMEOUT_GRACE_PERIOD
-                              end,
-                familiar:call(Site, ?MODULE, run_test_with_timeout,
-                              [Runner, Suite, Fun, Env, Timeout], RpcTimeout)
+                Subnet = anvl_test_subnet:take(),
+                try
+                  Net = anvl_plugin:conf([anvl_test, net]),
+                  Conf = #{ id       => Cluster
+                          , fixtures => Fixtures
+                          , peer     => #{}
+                          , net      => {127, Net, Subnet, 0}
+                          , subnet   => 24
+                          },
+                  ok = familiar:start_link_cluster(Conf),
+                  {ok, Site, _Node} = familiar:create_site(Cluster, SiteId,
+                                                           #{ start => true
+                                                            , fixtures => Fixtures
+                                                            }),
+                  Env = #{instance => Instance, net => Subnet, subnet => 24},
+                  RpcTimeout = case Timeout of
+                                  infinity -> infinity;
+                                  _        -> Timeout + ?TIMEOUT_GRACE_PERIOD
+                                end,
+                  familiar:call(Site, ?MODULE, run_test_with_timeout,
+                                [Runner, Suite, Fun, Env, Timeout], RpcTimeout)
+                after
+                  anvl_test_subnet:release(Subnet)
+                end
             end),
         case Result of
           ok ->

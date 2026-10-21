@@ -30,6 +30,7 @@ with the first argument selecting the @i{method} to execute:
 @item
 @code{@{Test@}(run, Env)}: execute the test case.
 @code{Env} is a map with at least the @code{instance} key.
+The execution is aborted if it takes longer than the timeout of the test case.
 This is the only mandatory method:
 all other methods are optional and have sane defaults.
 
@@ -63,7 +64,7 @@ e.g. @code{tags/0} or @code{timeout/0}.
 
 -behavior(anvl_test_runner).
 
--export([load/1, run_test/3, tc_location/2, discover/2]).
+-export([load/1, run_test/4, tc_location/2, discover/2]).
 -export([invoke_method/4]).
 
 -include("types.hrl").
@@ -114,8 +115,8 @@ This value is used for the test cases that don't override the timeout individual
 %% API
 %%--------------------------------------------------------------------------
 
--spec run_test(module(), atom(), map()) -> term().
-run_test(Module, Test, Env) ->
+-spec run_test(module(), atom(), map(), timeout()) -> term().
+run_test(Module, Test, Env, _Timeout) ->
   Module:Test(run, Env).
 
 tc_location(Module, Test) ->

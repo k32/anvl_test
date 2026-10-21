@@ -30,9 +30,16 @@ A plugin for running tests.
 %% API:
 -export([run/1]).
 
+%% Internal exports:
+-export([run_test_with_timeout/5]).
+
 -include("types.hrl").
 -include("anvl.hrl").
 -include("anvl_test_internal.hrl").
+
+%% Timeout on the RPC performed by the parent node, added on top of the
+%% test case timeout:
+-define(TIMEOUT_GRACE_PERIOD, 5000).
 
 %%--------------------------------------------------------------------------
 %% Types
@@ -124,13 +131,24 @@ run(#suite{suite = Suite, runner = Runner, tcs = TCs}) ->
                                                   }),
         Env = #{instance => Instance},
         try
-          familiar:call(Site, Runner, run_test, [Suite, Fun, Env], Timeout),
+          RpcTimeout = case Timeout of
+                          infinity -> infinity;
+                          _        -> Timeout + ?TIMEOUT_GRACE_PERIOD
+                        end,
+          familiar:call(Site, ?MODULE, run_test_with_timeout,
+                        [Runner, Suite, Fun, Env, Timeout], RpcTimeout),
           Msg = anvl_logger_formatter:format(
                   success,
                   "✅ ~p:~p(~P)",
                   [Suite, Fun, Instance, 10]),
           ?LOG_NOTICE(Msg)
         catch
+          exit:{exception, {test_timeout, _Suite, _Fun, TCStack}} ->
+            MsgFail = anvl_logger_formatter:format(
+                        error,
+                        "❌ ~p:~p(~P) timed out, stack of the test process:~n~p",
+                        [Suite, Fun, Instance, 10, TCStack]),
+            ?UNSAT(MsgFail, []);
           EC:Err:Stack ->
             MsgFail = anvl_logger_formatter:format(
                         error,
@@ -140,6 +158,29 @@ run(#suite{suite = Suite, runner = Runner, tcs = TCs}) ->
         end,
         true
       end).
+
+-doc false.
+%% This function is executed on the test site,
+%% so the watchdog aborts the execution of the test case there:
+-spec run_test_with_timeout(module(), module(), atom(), map(), timeout()) -> term().
+run_test_with_timeout(Runner, Suite, Fun, Env, Timeout) ->
+  Parent = self(),
+  Pid = proc_lib:spawn(fun() ->
+                           try Parent ! {self(), Runner:run_test(Suite, Fun, Env, Timeout)}
+                           catch EC:Err:Stack ->
+                               Parent ! {self(), EC, Err, Stack}
+                           end
+                       end),
+  receive
+    {Pid, Ret} ->
+      Ret;
+    {Pid, EC, Err, Stack} ->
+      erlang:raise(EC, Err, Stack)
+  after Timeout ->
+      {current_stacktrace, TCStack} = process_info(Pid, current_stacktrace),
+      exit(Pid, kill),
+      exit({test_timeout, Suite, Fun, TCStack})
+  end.
 
 ?MEMO(dist_started,
       begin

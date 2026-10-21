@@ -34,10 +34,11 @@ Execute a single test case.
 @code{Module} is the test suite module,
 @code{Test} is the name of the test function,
 and @code{Env} is the environment passed to the test case.
+@code{Timeout} is the maximum execution time of the test case.
 The callback is invoked on the test site,
 so the test case runs in the isolated node.
 """.
--callback run_test(Module :: anvl_test:suite(), Test :: atom(), Env :: map()) -> term().
+-callback run_test(Module :: anvl_test:suite(), Test :: atom(), Env :: map(), Timeout :: timeout()) -> term().
 
 -doc """
 Discover test suites of an OTP application.

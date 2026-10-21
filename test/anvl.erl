@@ -101,6 +101,14 @@ conf() ->
                                    (_) -> false
                                 end,
                                 Stack),
+               %% Workdirs of the failed test cases must be preserved,
+               %% with the logs inside:
+               lists:foreach(
+                 fun(#{workdir := WD}) ->
+                     true = filelib:is_dir(WD),
+                     true = filelib:is_regular(filename:join(WD, "erlang.log"))
+                 end,
+                 Fails),
                ok
            end),
         ok = snabbkaffe:stop(),

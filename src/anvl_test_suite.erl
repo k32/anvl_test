@@ -66,8 +66,11 @@ e.g. @code{tags/0} or @code{timeout/0}.
 
 -behavior(anvl_test_runner).
 
--export([load/1, run_test/4, tc_location/2, discover/2]).
+-export([run_test/5, tc_location/2, discover/2]).
 -export([invoke_method/4]).
+
+%% For testing:
+-export([load/4]).
 
 -include("types.hrl").
 -include("anvl.hrl").
@@ -117,8 +120,8 @@ This value is used for the test cases that don't override the timeout individual
 %% API
 %%--------------------------------------------------------------------------
 
--spec run_test(module(), atom(), map(), timeout()) -> term().
-run_test(Module, Test, Env, _Timeout) ->
+-spec run_test(_, module(), atom(), map(), timeout()) -> term().
+run_test(_Options, Module, Test, Env, _Timeout) ->
   Module:Test(run, Env).
 
 tc_location(Module, Test) ->
@@ -139,33 +142,6 @@ tc_location(Module, Test) ->
       end
   end.
 
-load(Module) ->
-  maybe
-    {_, Tests} ?= proplists:lookup(anvl_test_tests, Module:module_info(attributes)),
-    {ok, Tags} ?= opt_call(Module, tags, [], []),
-    ok ?= validate_tags(Tags),
-    {ok, GlobalFixtures} ?= opt_call(Module, fixtures, [], default_fixtures()),
-    ok ?= validate_fixtures(GlobalFixtures),
-    {ok, GlobalInstances} ?= opt_call(Module, instances, [], [default]),
-    ok ?= validate_instances(GlobalInstances),
-    {ok, GlobalTimeout} ?= opt_call(Module, timeout, [], ?DEFAULT_TC_TIMEOUT),
-    ok ?= validate_timeout(GlobalTimeout),
-    {ok, TCs} ?= tcs(Module, GlobalFixtures, GlobalInstances, GlobalTimeout, Tests, []),
-    {ok, #suite{ suite = Module
-               , runner = anvl_test_suite
-               , tests = Tests
-               , tags = Tags
-               , tcs = TCs
-               }}
-  else
-    none ->
-      {error, [Module], not_a_suite};
-    {error, Err} ->
-      {error, [Module], Err};
-    {error, _, _} = Err ->
-      Err
-  end.
-
 -spec discover(anvl_erlc:profile(), anvl_erlc:application()) ->
         {ok, [#suite{}]} | {error, [#suite{}]}.
 discover(Profile, App) ->
@@ -174,21 +150,28 @@ discover(Profile, App) ->
              || Module <- anvl_erlc:app_modules(Profile, App),
                 {Key, [?MODULE]} <- Module:module_info(attributes),
                 Key =:= behaviour orelse Key =:= behavior],
-  load_suites(Modules, [], false).
+  load_suites(Profile, App, Modules, [], false).
 
--spec load_suites([module()], [#suite{}], boolean()) ->
-        {ok, [#suite{}]} | {error, [#suite{}]}.
-load_suites([], Acc, false) ->
+-spec load_suites(
+        anvl_erlc:profile(),
+        anvl_erlc:application(),
+        [module()],
+        [#suite{}],
+        boolean()
+       ) -> {ok, [#suite{}]} | {error, [#suite{}]}.
+load_suites(_Profile, _App, [], Acc, false) ->
   {ok, Acc};
-load_suites([], Acc, true) ->
+load_suites(_Profile, _App, [], Acc, true) ->
   {error, Acc};
-load_suites([Module | Rest], Acc, Failed) ->
-  case load(Module) of
+load_suites(Profile, App, [Module | Rest], Acc, Failed) ->
+  %% FIXME:
+  Project = anvl_project:root(),
+  case load(Project, Profile, App, Module) of
     {ok, Suite} ->
-      load_suites(Rest, [Suite | Acc], Failed);
+      load_suites(Profile, App, Rest, [Suite | Acc], Failed);
     Error ->
       ?LOG_ERROR("Failed to load suite ~p: ~p", [Module, Error]),
-      load_suites(Rest, Acc, true)
+      load_suites(Profile, App, Rest, Acc, true)
   end.
 
 tcs(_Module, _GlobalFixtures, _GlobalInstances, _GlobalTimeout, [], Acc) ->
@@ -282,6 +265,38 @@ invoke_method(Module, Test, Method, Arg) ->
 %% Internal functions
 %%--------------------------------------------------------------------------
 
+-doc false.
+load(Project, Profile, App, Module) ->
+  maybe
+    {_, Tests} ?= proplists:lookup(anvl_test_tests, Module:module_info(attributes)),
+    {ok, Tags} ?= opt_call(Module, tags, [], []),
+    ok ?= validate_tags(Tags),
+    {ok, GlobalFixtures} ?= maybe_add_code_path(
+                              Project,
+                              Profile,
+                              App,
+                              opt_call(Module, fixtures, [], default_fixtures())),
+    ok ?= validate_fixtures(GlobalFixtures),
+    {ok, GlobalInstances} ?= opt_call(Module, instances, [], [default]),
+    ok ?= validate_instances(GlobalInstances),
+    {ok, GlobalTimeout} ?= opt_call(Module, timeout, [], ?DEFAULT_TC_TIMEOUT),
+    ok ?= validate_timeout(GlobalTimeout),
+    {ok, TCs} ?= tcs(Module, GlobalFixtures, GlobalInstances, GlobalTimeout, Tests, []),
+    {ok, #suite{ suite = Module
+               , runner = anvl_test_suite
+               , tests = Tests
+               , tags = Tags
+               , tcs = TCs
+               }}
+  else
+    none ->
+      {error, [Module], not_a_suite};
+    {error, Err} ->
+      {error, [Module], Err};
+    {error, _, _} = Err ->
+      Err
+  end.
+
 -spec get_instances(module(), test(), instances()) -> {ok, instances()} | {error, _}.
 get_instances(Module, Test, GlobalInstances) ->
   maybe
@@ -335,3 +350,13 @@ validate_timeout(T) when is_integer(T), T >= 0; T =:= infinity ->
   ok;
 validate_timeout(T) ->
   {error, {bad_timeout, T}}.
+
+maybe_add_code_path(Project, Profile, App, {ok, Fixtures}) ->
+  case lists:keyfind(familiar_code_path, 1, Fixtures) of
+    false ->
+      {ok, [anvl_test:code_path_fixture(Project, Profile, App) | Fixtures]};
+    _ ->
+      {ok, Fixtures}
+  end;
+maybe_add_code_path(_, _, _, Other) ->
+  Other.

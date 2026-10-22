@@ -1,6 +1,8 @@
 -ifdef(TEST).
+
 -module(att0).
 -behavior(anvl_test_suite).
+
 -moduledoc """
 Test suite that doesn't have any global tags or fixtures.
 """.

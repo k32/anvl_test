@@ -34,7 +34,7 @@ EUnit manages its own test structure, fixtures and timeouts.
 -behavior(anvl_test_runner).
 
 %% behavior callbacks:
--export([run_test/4, discover/2]).
+-export([run_test/5, discover/2]).
 
 -include("types.hrl").
 -include("anvl.hrl").
@@ -52,11 +52,11 @@ EUnit manages its own test structure, fixtures and timeouts.
 %%--------------------------------------------------------------------------------
 
 -doc false.
--spec run_test(module(), test(), map(), timeout()) -> ok.
-run_test(Module, _Test, _Env, _Timeout) ->
-  case eunit:test(Module) of
-    ok           -> ok;
-    error        -> error(eunit_failed);
+-spec run_test(list(), module(), test(), map(), timeout()) -> ok.
+run_test(Options, Module, _Test, _Env, _Timeout) ->
+  case eunit:test(Module, Options) of
+    ok             -> ok;
+    error          -> error(eunit_failed);
     {error, _} = E -> error(E)
   end.
 
@@ -65,11 +65,10 @@ run_test(Module, _Test, _Env, _Timeout) ->
 discover(Profile, App) ->
   _ = precondition(anvl_erlc:app_compiled(Profile, App)),
   Modules = anvl_erlc:app_modules(Profile, App),
-  Suites = [ suite(Module)
-             || Module <- Modules
-                , has_eunit_tests(Module)
-                , not is_chained(Module, Modules)
-           ],
+  Suites = [suite(Module) || Module <- Modules
+                           , has_eunit_tests(Module)
+                           , not is_chained(Module, Modules)
+                           ],
   {ok, Suites}.
 
 %%--------------------------------------------------------------------------------
@@ -78,18 +77,26 @@ discover(Profile, App) ->
 
 -spec suite(module()) -> #suite{}.
 suite(Module) ->
+  Options = [ {print_depth, anvl_plugin:conf([anvl_test, eunit, print_depth])}
+            , {scale_timeouts, anvl_plugin:conf([anvl_test, eunit, scale_timeouts])}
+            | case anvl_plugin:conf([anvl_test, eunit, verbose]) of
+                true  -> [verbose];
+                false -> []
+              end
+            ],
   %% Timeout is infinity, because EUnit manages the timeouts internally:
-  #suite{ suite    = Module
-        , runner   = ?MODULE
-        , tests    = [eunit]
-        , fixtures = [{familiar_code_path, #{}}]
-        , tags     = []
-        , tcs      = [ #tc{ name    = eunit
-                          , inst    = default
-                          , tags    = []
-                          , fixtures = [{familiar_code_path, #{}}]
-                          , timeout = infinity
-                          }]
+  #suite{ suite           = Module
+        , runner          = ?MODULE
+        , runner_options  = Options
+        , tests           = [eunit]
+        , fixtures        = []
+        , tags            = []
+        , tcs             = [#tc{ name     = eunit
+                                , inst      = default
+                                , tags      = []
+                                , fixtures  = [{familiar_code_path, #{}}]
+                                , timeout   = infinity
+                                }]
         }.
 
 -spec has_eunit_tests(module()) -> boolean().

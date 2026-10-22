@@ -8,20 +8,23 @@
 conf() ->
   #{ plugins => [anvl_erlc, anvl_git, anvl_rebar3, anvl_test]
    , conditions => [all]
-   , [deps, git] =>
-       [#{ id => familiar
-         , repo => "https://github.com/ieQu1/familiar.git"
-         , ref => {tag, "0.1.4"}
-         }]
-   , [deps, local] =>
-       [#{ kind => otp_application
-         , dir => "../"
-         }]
+   , deps =>
+       #{ git =>
+            [#{ id => familiar
+              , repo => "https://github.com/ieQu1/familiar.git"
+              , ref => {tag, "0.1.4"}
+              }]
+        , local =>
+            [#{ kind => otp_application
+              , dir => "../"
+              }]
+        }
    , [erlang, overrides] =>
        [#{ profile => test
          , sources => ["src/*.erl", "test/*.erl"]
          , compile => #{options => [debug_info, {d, 'TEST'}]}
          }]
+   , [anvl_test, extra_apps] => [snabbkaffe]
    }.
 
 ?MEMO(all,
@@ -70,7 +73,7 @@ conf() ->
 ?MEMO(suite_load_test,
       begin
         precondition(built()),
-        {ok, Suite0} = anvl_test_suite:load(att0),
+        {ok, Suite0} = anvl_test_suite:load(anvl_project:root(), test, anvl_test_test, att0),
         #suite{ suite = att0
               , runner = anvl_test_suite
               , tests = Tests0
@@ -93,13 +96,13 @@ conf() ->
            #{timetrap => 30000},
            begin
              precondition(built()),
-             {ok, Suite} = anvl_test_suite:load(att0),
+             {ok, Suite} = anvl_test_suite:load(anvl_project:root(), test, anvl_test_test, att0),
              register_test_hooks(),
-             true = anvl_test:run(make_ref(), Suite),
+             true = anvl_test:run(Suite),
              %% Run the EUnit suites discovered in the same application:
              {ok, Suites} = anvl_test:discover(test, anvl_test_test),
              EUnitSuites = [S || #suite{runner = anvl_test_eunit} = S <- Suites],
-             lists:foreach(fun(S) -> true = anvl_test:run(make_ref(), S) end,
+             lists:foreach(fun(S) -> true = anvl_test:run(S) end,
                            EUnitSuites)
            end,
            fun(Trace) ->

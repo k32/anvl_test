@@ -38,11 +38,13 @@ and @code{Env} is the environment passed to the test case.
 The callback is invoked on the test site,
 so the test case runs in the isolated node.
 """.
--callback run_test(Module :: anvl_test:suite(),
-                   Test :: atom(),
-                   Env :: map(),
-                   Timeout :: timeout()) ->
-        term().
+-callback run_test(
+            _RunnerOptions,
+            anvl_test:suite(),
+            Test :: atom(),
+            Env :: map(),
+            Timeout :: timeout()
+           ) -> ok | #tc_error{}.
 
 -doc """
 Discover test suites of an OTP application.

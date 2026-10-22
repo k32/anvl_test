@@ -7,7 +7,7 @@ conf() ->
    , [deps, git] =>
        [#{ id => familiar
          , repo => "https://github.com/ieQu1/familiar.git"
-         , ref => {tag, "0.1.4"}
+         , ref => {tag, "0.1.5"}
          }]
    , [erlang, static_checks] =>
        #{ non_runtime_deps => [anvl_core, lee, typerefl]

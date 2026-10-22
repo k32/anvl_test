@@ -65,10 +65,10 @@ The plugin itself installs default hooks that log the outcome of each test case 
               on_test_fail_arg/0, on_test_fail_acc/0, discover_ret/0]).
 
 %% API:
--export([run/2, discover/2]).
+-export([run/1, discover/2, code_path_fixture/3]).
 
 %% Internal exports:
--export([run_test_with_timeout/5]).
+-export([run_test_with_timeout/6]).
 
 -include("types.hrl").
 -include("anvl.hrl").
@@ -111,8 +111,7 @@ The plugin itself installs default hooks that log the outcome of each test case 
 
 %% Return type of the anvl_test_discover hooks. The hooks take the profile
 %% and the application name as arguments:
--type discover_ret() ::
-        { ok, [#suite{}] } | { error, [#suite{}] }.
+-type discover_ret() :: {ok, [#suite{}]} | {error, [#suite{}]}.
 
 %% Accumulator of the on_test_fail hooks:
 -type on_test_fail_acc() ::
@@ -121,7 +120,6 @@ The plugin itself installs default hooks that log the outcome of each test case 
         , Fail  :: boolean()
         , IO    :: iolist()
         }.
-
 
 %%--------------------------------------------------------------------------
 %% anvl callbacks
@@ -187,43 +185,50 @@ model() ->
               },
              #{
               }}
+        , eunit =>
+            #{ verbose =>
+                 {[value, os_env, cli_param],
+                  #{ oneliner => "Display more details about the running tests"
+                   , type => boolean()
+                   , default => true
+                   , cli_operand => "eunit-verbose"
+                   }}
+             , print_depth =>
+                 {[value, os_env, cli_param],
+                  #{ oneliner => "Maximum depth to which EUnit prints terms in case of error"
+                   , type => pos_integer()
+                   , default => 100
+                   , cli_operand => "eunit-print-depth"
+                   }}
+             , scale_timeouts =>
+                 {[value, os_env, cli_param],
+                  #{ oneliner => "Scale EUnit timeouts by this factor"
+                   , type => float()
+                   , default => 1.0
+                   , cli_operand => "eunit-scale-timeouts"
+                   }}
+             }
         }}.
 
 -doc false.
 project_model() ->
   #{ anv_test =>
-       #{}}.
+       #{ extra_apps =>
+            {[value],
+             #{ oneliner => "Extra applications that have to be loaded on the test nodes"
+              , type => list(anvl_erlc:application())
+              , default => []
+              }}
+        }}.
 
 %%--------------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------------
 
-%% Each test case cluster runs in a dedicated working directory created by
-%% the familiar_workdir fixture, and familiar_logger writes the node logs
-%% there. These fixtures are mandatory: the user cannot override them:
--spec ensure_default_fixtures([familiar:fixture()]) -> [familiar:fixture()].
-ensure_default_fixtures(Fixtures0) ->
-  LogLevel = anvl_plugin:conf([anvl_test, log_level]),
-  HandlerConfig =
-    maps:merge(#{level => LogLevel}, anvl_plugin:conf([anvl_test, log_handler_config])),
-  Defaults = [ {familiar_workdir, #{}}
-             , {familiar_logger, #{ primary_config => #{level => LogLevel}
-                                  , handler_config => HandlerConfig
-                                  }}
-             ],
-  Overrides = [F || {F, _} <- Fixtures0, lists:keymember(F, 1, Defaults)],
-  case Overrides of
-    [] ->
-      ok;
-    _ ->
-      ?LOG_WARNING("~p fixtures are mandatory and cannot be overridden", [Overrides])
-  end,
-  Fixtures = [Fix || {F, _} = Fix <- Fixtures0, not lists:keymember(F, 1, Defaults)],
-  Defaults ++ Fixtures.
-
--spec run(run_id(), #suite{}) -> boolean().
-run(RunId, #suite{suite = Suite, runner = Runner, tcs = TCs}) ->
-  precondition([executed(RunId, Runner, Suite, TC) || TC <:- TCs]).
+-spec run(#suite{}) -> boolean().
+run(#suite{suite = Suite, runner = Runner, runner_options = RunnerOptions, tcs = TCs}) ->
+  RunId = 1,
+  precondition([executed(RunId, Runner, RunnerOptions, Suite, TC) || TC <:- TCs]).
 
 -doc """
 Discover test suites of an OTP application by running the @code{anvl_test_discover} hooks
@@ -247,6 +252,16 @@ discover(Profile, App) ->
     false -> {error, Suites}
   end.
 
+-doc """
+Create a standard fixture for loading the code.
+""".
+-spec code_path_fixture(anvl_project:t(), anvl_erlc:profile(), anvl_erlc:application()) -> familiar:fixture().
+code_path_fixture(Project, Profile, App) ->
+  Extra = anvl_project:conf(Project, [anvl_test, extra_apps]),
+  precondition([anvl_erlc:anvl_compiled(Profile, I) || I <- Extra]),
+  {Apps, _} = anvl_erlc:app_closure(Profile, [App, [anvl_test | Extra]]),
+  [anvl_erlc:app_path(Profile, I) || I <- Apps].
+
 %%--------------------------------------------------------------------------
 %% Internal exports
 %%--------------------------------------------------------------------------
@@ -259,7 +274,7 @@ discover(Profile, App) ->
 %% It's part of the memoization key, so a failed (e.g. flaky) test case
 %% can be re-run with a different RunId, without memoization getting in
 %% the way:
-?MEMO(executed, RunId, Runner, Suite, TC,
+?MEMO(executed, RunId, Runner, RunnerOptions, Suite, TC,
       begin
         precondition(dist_started()),
         #tc{name = Fun, inst = Instance, fixtures = Fixtures0, timeout = Timeout} = TC,
@@ -297,7 +312,8 @@ discover(Profile, App) ->
                                 end,
                   Result =
                     familiar:call(Site, ?MODULE, run_test_with_timeout,
-                                  [Runner, Suite, Fun, Env, Timeout], RpcTimeout),
+                                  [Runner, RunnerOptions, Suite, Fun, Env, Timeout], RpcTimeout),
+                  familiar:stop_cluster(Cluster, Result =:= ok),
                   {Result, Workdir}
                 after
                   anvl_test_subnet:release(Subnet)
@@ -326,7 +342,7 @@ discover(Profile, App) ->
             ?LOG_ERROR("~ts", [HookIO]),
             %% TODO: When Retry is true, re-run the test case with a fresh RunId
             case Fail of
-              true  -> exit(unsat);
+              true  -> ?UNSAT("Test failed", []);
               false -> true
             end
         end
@@ -337,13 +353,13 @@ discover(Profile, App) ->
 %% so the watchdog aborts the execution of the test case there:
 %% Errors of the test case are returned as records
 %% instead of exceptions, to distinguish them from infrastructure errors:
--spec run_test_with_timeout(module(), module(), atom(), map(), timeout()) ->
+-spec run_test_with_timeout(module(), term(), module(), atom(), map(), timeout()) ->
         ok | #tc_error{}.
-run_test_with_timeout(Runner, Suite, Fun, Env, Timeout) ->
+run_test_with_timeout(Runner, RunnerOptions, Suite, Fun, Env, Timeout) ->
   Parent = self(),
   Pid = proc_lib:spawn(fun() ->
                            try
-                             _ = Runner:run_test(Suite, Fun, Env, Timeout),
+                             _ = Runner:run_test(RunnerOptions, Suite, Fun, Env, Timeout),
                              Parent ! {self(), ok}
                            catch Class:Reason:Stack ->
                                Parent ! {self(), #tc_error{ class = Class
@@ -405,6 +421,29 @@ log_test_fail({#{ suite := Suite
           [Suite, Fun, Instance, 10, Workdir, Class, Reason, Stack])
     end,
   {Arg, Retry, Fail, [HookIO, MsgFail]}.
+
+%% Each test case cluster runs in a dedicated working directory created by
+%% the familiar_workdir fixture, and familiar_logger writes the node logs
+%% there. These fixtures are mandatory: the user cannot override them:
+-spec ensure_default_fixtures([familiar:fixture()]) -> [familiar:fixture()].
+ensure_default_fixtures(Fixtures0) ->
+  LogLevel = anvl_plugin:conf([anvl_test, log_level]),
+  HandlerConfig =
+    maps:merge(#{level => LogLevel}, anvl_plugin:conf([anvl_test, log_handler_config])),
+  Defaults = [ {familiar_workdir, #{}}
+             , {familiar_logger, #{ primary_config => #{level => LogLevel}
+                                  , handler_config => HandlerConfig
+                                  }}
+             ],
+  Overrides = [F || {F, _} <- Fixtures0, lists:keymember(F, 1, Defaults)],
+  case Overrides of
+    [] ->
+      ok;
+    _ ->
+      ?LOG_WARNING("~p fixtures are mandatory and cannot be overridden", [Overrides])
+  end,
+  Fixtures = [Fix || {F, _} = Fix <- Fixtures0, not lists:keymember(F, 1, Defaults)],
+  Defaults ++ Fixtures.
 
 ?MEMO(dist_started,
       begin

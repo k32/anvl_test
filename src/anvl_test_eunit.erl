@@ -64,9 +64,10 @@ run_test(Options, Module, _Test, _Env, _Timeout) ->
 -spec discover(anvl_erlc:profile(), anvl_erlc:application()) -> {ok, [#suite{}]} | {error, [#suite{}]}.
 discover(Profile, App) ->
   _ = precondition(anvl_erlc:app_compiled(Profile, App)),
+  Ctx = anvl_erlc:app_info(Profile, App),
   Modules = anvl_erlc:app_modules(Profile, App),
   Suites = [suite(Module) || Module <- Modules
-                           , has_eunit_tests(Module)
+                           , has_eunit_tests(Ctx, Module)
                            , not is_chained(Module, Modules)
                            ],
   {ok, Suites}.
@@ -99,20 +100,22 @@ suite(Module) ->
                                 }]
         }.
 
--spec has_eunit_tests(module()) -> boolean().
-has_eunit_tests(Module) ->
-  try Module:module_info(exports) of
-      Exports ->
-        lists:any(fun({F, 0}) ->
-                      Name = atom_to_list(F),
-                      lists:suffix("_test", Name) orelse lists:suffix("_test_", Name);
-                     (_) ->
-                      false
-                   end,
-                   Exports)
-    catch
-      _:_ ->
-        false
+%% Scan the beam file of the module instead of the loaded module, since
+%% the latter may be compiled without the tests:
+-spec has_eunit_tests(anvl_erlc:app_info(), module()) -> boolean().
+has_eunit_tests(Ctx, Module) ->
+  Beam = anvl_erlc:beam_file(Ctx, Module),
+  case beam_lib:chunks(Beam, [exports]) of
+    {ok, {Module, [{exports, Exports}]}} ->
+      lists:any(fun({F, 0}) ->
+                    Name = atom_to_list(F),
+                    lists:suffix("_test", Name) orelse lists:suffix("_test_", Name);
+                   (_) ->
+                    false
+                 end,
+                 Exports);
+    {error, beam_lib, _Reason} ->
+      false
   end.
 
 %% Return true for modules like `foo_tests', which EUnit runs as part of

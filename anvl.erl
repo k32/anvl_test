@@ -3,15 +3,15 @@
 conf() ->
   #{ plugins => [anvl_erlc, anvl_git, anvl_texinfo, anvl_rebar3]
    , conditions => [build, static_checks, test]
-   , [erlang, includes] => ["${src_root}/include", "${src_root}/src", anvl_plugin:includes_dir()]
+   , erlang =>
+       #{ includes => ["${src_root}/include", "${src_root}/src", anvl_plugin:includes_dir()]
+        , [static_checks, non_runtime_deps] => [anvl_core, anvl_erlc, lee, typerefl]
+        }
    , [deps, git] =>
        [#{ id => familiar
          , repo => "https://github.com/ieQu1/familiar.git"
          , ref => {tag, "0.1.6"}
          }]
-   , [erlang, static_checks] =>
-       #{ non_runtime_deps => [anvl_core, lee, typerefl]
-        }
    , texinfo =>
        #{ compile =>
             [#{ format => html
@@ -40,7 +40,9 @@ conf() ->
       begin
         %% Run the test project with the @code{anvl} binary from @code{PATH}:
         TestDir = filename:join(anvl_project:root_dir(), "test"),
-        anvl_lib:exec("anvl", [], [{cd, TestDir}])
+        {0, Output} = anvl_lib:exec_("anvl", [], [{cd, TestDir}, collect_output]),
+        io:put_chars(["> ", lists:join("\n> ", Output), $\n]),
+        false
       end).
 
 ?MEMO(doc,

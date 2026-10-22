@@ -30,8 +30,10 @@ with the first argument selecting the @i{method} to execute:
 @item
 @code{@{Test@}(run, Env)}: execute the test case.
 @code{Env} is a map with at least the @code{instance} key,
-and the @code{net} and @code{subnet} keys with the network settings of the test case,
-matching the corresponding parameters of @code{familiar:start_link_cluster}.
+and the @code{familiar} key with the network settings of the test case:
+@code{net} is the number of the @code{/24} subnet of the loopback range
+dedicated to the test case,
+and @code{subnet} is its prefix length.
 The execution is aborted if it takes longer than the timeout of the test case.
 This is the only mandatory method:
 all other methods are optional and have sane defaults.
@@ -120,10 +122,12 @@ This value is used for the test cases that don't override the timeout individual
 %% API
 %%--------------------------------------------------------------------------
 
+-doc false.
 -spec run_test(_, module(), atom(), map(), timeout()) -> term().
 run_test(_Options, Module, Test, Env, _Timeout) ->
   Module:Test(run, Env).
 
+-doc false.
 tc_location(Module, Test) ->
   %% TODO: add a more reliable way to do this via parse transform
   try
@@ -142,6 +146,7 @@ tc_location(Module, Test) ->
       end
   end.
 
+-doc false.
 -spec discover(anvl_erlc:profile(), anvl_erlc:application()) ->
         {ok, [#suite{}]} | {error, [#suite{}]}.
 discover(Profile, App) ->
@@ -243,6 +248,7 @@ default_fixtures() ->
 %% Internal exports
 %%--------------------------------------------------------------------------
 
+-doc false.
 invoke_method(Module, Test, Method, Arg) ->
   try
     {ok, Module:Test(Method, Arg)}

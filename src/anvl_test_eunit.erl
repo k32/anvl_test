@@ -26,10 +26,11 @@ i.e. exported functions of arity 0 with names ending in @code{_test} or @code{_t
 is mapped to a suite with a single test case,
 which executes all the EUnit tests of the module via @code{eunit:test/1} on the test site.
 EUnit manages its own test structure, fixtures and timeouts.
+
+Note: modules named like @code{foo_tests} are skipped when @code{foo} is
+present in the same application, because @code{eunit:test/1} runs their
+tests as part of @code{foo}.
 """.
-%% Note: modules named like @code{foo_tests} are skipped when @code{foo} is
-%% present in the same application, because @code{eunit:test/1} runs their
-%% tests as part of @code{foo}.
 
 -behavior(anvl_test_runner).
 

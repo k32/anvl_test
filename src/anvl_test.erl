@@ -39,7 +39,8 @@ e.g. it crashed or timed out.
 The hooks are folded over an accumulator of type @code{anvl_test:on_test_fail_acc()}:
 a tuple of the argument map of type @code{anvl_test:on_test_fail_arg()},
 the @code{@{Retry, Fail@}} flags and an iolist.
-Setting @code{Retry} requests re-execution of the test case,
+Setting @code{Retry} requests re-execution of the test case
+(not implemented yet),
 and resetting @code{Fail} prevents the condition from failing.
 The hooks append their log messages to the iolist,
 and the plugin prints it after all hooks complete.
@@ -225,6 +226,10 @@ project_model() ->
 %% API
 %%--------------------------------------------------------------------------
 
+-doc """
+Run the test cases of the suite.
+The condition fails when a test case fails.
+""".
 -spec run(#suite{}) -> boolean().
 run(#suite{suite = Suite, runner = Runner, runner_options = RunnerOptions, tcs = TCs}) ->
   RunId = 1,

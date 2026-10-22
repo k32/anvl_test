@@ -62,11 +62,11 @@ The plugin itself installs default hooks that log the outcome of each test case 
 %% behavior callbacks:
 -export([model/0, project_model/0, init/0, init_for_project/1]).
 
--export_type([suite/0, run_id/0, on_test_success_arg/0, on_test_success_acc/0,
+-export_type([suite/0, run_id/0, filter_spec/0, on_test_success_arg/0, on_test_success_acc/0,
               on_test_fail_arg/0, on_test_fail_acc/0, discover_ret/0]).
 
 %% API:
--export([run/1, discover/2, code_path_fixture/3]).
+-export([run/2, run/3, run_suite/2, discover/2, code_path_fixture/3]).
 
 %% Internal exports:
 -export([run_test_with_timeout/6]).
@@ -86,6 +86,37 @@ The plugin itself installs default hooks that log the outcome of each test case 
 -type suite() :: module().
 
 -type run_id() :: term().
+
+-doc """
+Specification of a test case filter.
+
+A filter spec is a tuple of a fun and an arbitrary configuration value.
+The fun takes the following arguments:
+
+@enumerate
+@item the runner module
+@item the suite
+@item the @code{#tc@{@}} record of the test case
+@item the configuration value of the spec
+@item the current boolean value of the accumulator
+@end enumerate
+
+It returns the next value of the accumulator.
+
+A test case is executed when folding the filter specs of @code{run_suite/2}
+over the accumulator from left to right,
+starting with @code{true},
+yields @code{true}.
+""".
+-type filter_spec() ::
+        { fun(( Runner :: module()
+              , Suite  :: suite()
+              , TC     :: #tc{}
+              , Conf   :: term()
+              , Acc    :: boolean()
+              ) -> boolean())
+        , Conf :: term()
+        }.
 
 -type on_test_success_arg() ::
         #{ run_id  := run_id()
@@ -227,13 +258,54 @@ project_model() ->
 %%--------------------------------------------------------------------------
 
 -doc """
-Run the test cases of the suite.
+Run the test cases of the suite selected by the filters.
+A test case runs when folding over @code{Filters} yields @code{true}
+(see @code{filter_spec()}).
 The condition fails when a test case fails.
 """.
--spec run(#suite{}) -> boolean().
-run(#suite{suite = Suite, runner = Runner, runner_options = RunnerOptions, tcs = TCs}) ->
+-spec run_suite(#suite{}, [filter_spec()]) -> boolean().
+run_suite(#suite{suite = Suite, runner = Runner, runner_options = RunnerOptions, tcs = TCs}, Filters) ->
   RunId = 1,
-  precondition([executed(RunId, Runner, RunnerOptions, Suite, TC) || TC <:- TCs]).
+  precondition([executed(RunId, Runner, RunnerOptions, Suite, TC)
+                || TC <:- TCs,
+                   passes_filters(Runner, Suite, TC, Filters)]).
+
+-doc false.
+-spec passes_filters(module(), suite(), #tc{}, [filter_spec()]) -> boolean().
+passes_filters(Runner, Suite, TC, Filters) ->
+  lists:foldl(fun({Fun, Conf}, Acc) -> Fun(Runner, Suite, TC, Conf, Acc) end,
+              true,
+              Filters).
+
+-doc """
+Discover the test suites of the OTP application
+and run their test cases selected by the filters
+(see @code{filter_spec()}).
+
+The suites that could not be loaded are skipped,
+but the whole run fails in the end,
+because the test selection is incomplete.
+The run also fails when a test case fails.
+""".
+-spec run(anvl_erlc:profile(), anvl_erlc:application(), [filter_spec()]) -> boolean().
+run(Profile, App, Filters) ->
+  {Status, Suites} = discover(Profile, App),
+  Changed = lists:foldl(fun(Suite, Acc) -> run_suite(Suite, Filters) orelse Acc end,
+                        false,
+                        Suites),
+  case Status of
+    ok    -> Changed;
+    error -> ?UNSAT("Some test suites of the application ~p could not be loaded", [App])
+  end.
+
+-doc """
+Run all test cases of the OTP application.
+
+Equivalent to @code{run(Profile, App, [])}.
+""".
+-spec run(anvl_erlc:profile(), anvl_erlc:application()) -> boolean().
+run(Profile, App) ->
+  run(Profile, App, []).
 
 -doc """
 Discover test suites of an OTP application by running the @code{anvl_test_discover} hooks

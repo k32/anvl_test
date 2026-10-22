@@ -100,12 +100,32 @@ conf() ->
              precondition(built()),
              {ok, Suite} = anvl_test_suite:load(anvl_project:root(), test, anvl_test_test, att0),
              register_test_hooks(),
-             true = anvl_test:run(Suite),
+             true = anvl_test:run_suite(Suite, []),
              %% Run the EUnit suites discovered in the same application:
              {ok, Suites} = anvl_test:discover(test, anvl_test_test),
              EUnitSuites = [S || #suite{runner = anvl_test_eunit} = S <- Suites],
-             lists:foreach(fun(S) -> true = anvl_test:run(S) end,
-                           EUnitSuites)
+             AttEunit = lists:keyfind(att_eunit, #suite.suite, EUnitSuites),
+             %% The filter funs must be consulted for each test case:
+             Crash = fun(_, _, _, _, _) -> error(filter_crash) end,
+             failed = try anvl_test:run_suite(AttEunit, [{Crash, unused}]) of
+                        _ -> not_failed
+                      catch
+                        _:_ -> failed
+                      end,
+             %% Test cases excluded by the filters don't run:
+             ExcludeAll = fun(_, _, _, _, _) -> false end,
+             _ = anvl_test:run_suite(AttEunit, [{ExcludeAll, unused}]),
+             lists:foreach(fun(S) -> true = anvl_test:run_suite(S, []) end,
+                           EUnitSuites),
+             %% Check the arguments passed to the filter funs:
+             CheckArgs = fun(anvl_test_eunit, att_eunit, #tc{name = eunit}, config, Acc) ->
+                             true = is_boolean(Acc),
+                             Acc
+                          end,
+             _ = anvl_test:run_suite(AttEunit, [{CheckArgs, config}]),
+             %% The combined discover-and-run API:
+             _ = anvl_test:run(test, anvl_test_test, [{ExcludeAll, unused}]),
+             _ = anvl_test:run(test, anvl_test_test)
            end,
            fun(Trace) ->
                Successes = ?of_kind(on_testcase_success, Trace),

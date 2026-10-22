@@ -146,10 +146,10 @@ tc_location(Module, Test) ->
         {ok, [#suite{}]} | {error, [#suite{}]}.
 discover(Profile, App) ->
   _ = precondition(anvl_erlc:app_compiled(Profile, App)),
+  Ctx = anvl_erlc:app_info(Profile, App),
   Modules = [Module
              || Module <- anvl_erlc:app_modules(Profile, App),
-                {Key, [?MODULE]} <- Module:module_info(attributes),
-                Key =:= behaviour orelse Key =:= behavior],
+                is_suite(Ctx, Module)],
   load_suites(Profile, App, Modules, [], false).
 
 -spec load_suites(
@@ -267,7 +267,9 @@ invoke_method(Module, Test, Method, Arg) ->
 
 -doc false.
 load(Project, Profile, App, Module) ->
+  Ctx = anvl_erlc:app_info(Profile, App),
   maybe
+    ok ?= ensure_loaded(Ctx, Module),
     {_, Tests} ?= proplists:lookup(anvl_test_tests, Module:module_info(attributes)),
     {ok, Tags} ?= opt_call(Module, tags, [], []),
     ok ?= validate_tags(Tags),
@@ -295,6 +297,52 @@ load(Project, Profile, App, Module) ->
       {error, [Module], Err};
     {error, _, _} = Err ->
       Err
+  end.
+
+%% Make sure the module is loaded from the beam file of the profile, since
+%% the loaded module may come from a different profile:
+-spec ensure_loaded(anvl_erlc:app_info(), module()) -> ok | {error, _}.
+ensure_loaded(Ctx, Module) ->
+  Beam = anvl_erlc:beam_file(Ctx, Module),
+  case code:is_loaded(Module) of
+    {file, Beam} ->
+      ok;
+    _ ->
+      load_beam(Beam, Module)
+  end.
+
+-spec load_beam(file:filename(), module()) -> ok | {error, _}.
+load_beam(Beam, Module) ->
+  %% Note: load_abs expects the filename without the extension:
+  case code:load_abs(filename:rootname(Beam)) of
+    {module, Module} ->
+      ok;
+    {error, not_purged} ->
+      %% The error can be ignored when the current version of the module is
+      %% loaded from the right beam file, e.g. by another discoverer running
+      %% in parallel:
+      case code:is_loaded(Module) of
+        {file, Beam} -> ok;
+        _            -> {error, not_purged}
+      end;
+    {error, Reason} ->
+      {error, Reason}
+  end.
+
+%% Select modules implementing the suite behavior, by scanning the
+%% attributes chunk of the beam files of the profile:
+-spec is_suite(anvl_erlc:app_info(), module()) -> boolean().
+is_suite(Ctx, Module) ->
+  Beam = anvl_erlc:beam_file(Ctx, Module),
+  case beam_lib:chunks(Beam, [attributes]) of
+    {ok, {Module, [{attributes, Attributes}]}} ->
+      lists:any(fun({behavior,  [?MODULE]}) -> true;
+                   ({behaviour, [?MODULE]}) -> true;
+                   (_)                        -> false
+                end,
+                Attributes);
+    {error, beam_lib, _Reason} ->
+      false
   end.
 
 -spec get_instances(module(), test(), instances()) -> {ok, instances()} | {error, _}.

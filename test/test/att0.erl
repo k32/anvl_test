@@ -38,6 +38,27 @@ parent_node_is_hidden(crash, Env) ->
   %% This branch should be unreachable
   error(Env).
 
+%% Create a nested cluster using the anvl_test_cluster fixture:
+-test(cluster).
+cluster(fixtures, #{instance := default}) ->
+  [ {familiar_code_path, #{}}
+  , {anvl_test_cluster, #{}}
+  ];
+cluster(run, #{instance := default, familiar := #{net := Net, subnet := 24}}) ->
+  Cluster = anvl_test_cluster:get_cluster(),
+  {ok, Site} = familiar:create_site(Cluster, site1),
+  {ok, Node} = familiar:start_site(Site),
+  %% The nested cluster occupies its own network, derived from the
+  %% network settings of the test case:
+  ?assertEqual(
+     "site1@127." ++ integer_to_list(Net) ++ ".0.0",
+     atom_to_list(Node)),
+  ?assertEqual(Node, familiar:call(Site, erlang, node, [])),
+  %% The ID of the cluster is in the fixture state of the node:
+  ?assertMatch(
+     #{cluster := Cluster},
+     familiar:fixture_state()).
+
 -test(expected_fail).
 expected_fail(run, #{instance := _, familiar := _}) ->
   error(expected_fail).

@@ -60,8 +60,9 @@ conf() ->
                             }]
                 }
         ] = lists:keysort(#suite.suite, Suites0),
-        [expected_fail, foo, parent_node_is_hidden, sleepy] = lists:sort(Tests0),
-        [ #tc{name = expected_fail, inst = default, tags = [], timeout = 30000}
+        [cluster, expected_fail, foo, parent_node_is_hidden, sleepy] = lists:sort(Tests0),
+        [ #tc{name = cluster, inst = default, tags = [], timeout = 30000}
+        , #tc{name = expected_fail, inst = default, tags = [], timeout = 30000}
         , #tc{name = foo, inst = 1, tags = [tag_1], timeout = 1000}
         , #tc{name = foo, inst = 2, tags = [tag_2], timeout = 30000}
         , #tc{name = parent_node_is_hidden, inst = default, tags = [], timeout = 30000}
@@ -80,8 +81,9 @@ conf() ->
               , tags = []
               , tcs = TCs0
               } = Suite0,
-        [expected_fail, foo, parent_node_is_hidden, sleepy] = lists:sort(Tests0),
-        [ #tc{name = expected_fail, inst = default, tags = [], timeout = 30000}
+        [cluster, expected_fail, foo, parent_node_is_hidden, sleepy] = lists:sort(Tests0),
+        [ #tc{name = cluster, inst = default, tags = [], timeout = 30000}
+        , #tc{name = expected_fail, inst = default, tags = [], timeout = 30000}
         , #tc{name = foo, inst = 1, tags = [tag_1], timeout = 1000}
         , #tc{name = foo, inst = 2, tags = [tag_2], timeout = 30000}
         , #tc{name = parent_node_is_hidden, inst = default, tags = [], timeout = 30000}
@@ -107,7 +109,7 @@ conf() ->
            end,
            fun(Trace) ->
                Successes = ?of_kind(on_testcase_success, Trace),
-               [foo, foo, parent_node_is_hidden] =
+               [cluster, foo, foo, parent_node_is_hidden] =
                  lists:sort([Name || #{ suite := att0
                                       , tc := #tc{name = Name}
                                       } <- Successes]),

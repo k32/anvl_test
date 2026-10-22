@@ -21,7 +21,7 @@
 -moduledoc """
 This module contains functions for interfacing with the test suites.
 
-A test suite is an Erlang module implementing the @code{anvl_test_suite} behavior.
+A test suite is an Erlang module implementing the @erlmodref{link,anvl_test_suite} behavior.
 Each test case of the suite is a function of arity 2,
 with the first argument selecting the @i{method} to execute:
 
@@ -61,7 +61,7 @@ Default: the global timeout of the suite.
 @end itemize
 
 Suite-global values for tags, fixtures, instances and timeout can be provided by implementing the corresponding callbacks of the behavior,
-e.g. @code{tags/0} or @code{timeout/0}.
+e.g. @erlcb{ref,erlref,anvl_test_suite,tags,0} or @erlcb{ref,erlref,anvl_test_suite,timeout,0}.
 """.
 
 -define(DEFAULT_TC_TIMEOUT, 30000).
@@ -146,7 +146,10 @@ tc_location(Module, Test) ->
       end
   end.
 
--doc false.
+-doc """
+Discover the test suites of the OTP application:
+the modules implementing the @erlmodref{link,anvl_test_suite} behavior.
+""".
 -spec discover(anvl_erlc:profile(), anvl_erlc:application()) ->
         {ok, [#suite{}]} | {error, [#suite{}]}.
 discover(Profile, App) ->

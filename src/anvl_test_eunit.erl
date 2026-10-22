@@ -61,7 +61,9 @@ run_test(Options, Module, _Test, _Env, _Timeout) ->
     {error, _} = E -> error(E)
   end.
 
--doc false.
+-doc """
+Discover the EUnit test modules of the OTP application.
+""".
 -spec discover(anvl_erlc:profile(), anvl_erlc:application()) -> {ok, [#suite{}]} | {error, [#suite{}]}.
 discover(Profile, App) ->
   _ = precondition(anvl_erlc:app_compiled(Profile, App)),

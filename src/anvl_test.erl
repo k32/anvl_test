@@ -27,8 +27,8 @@ The plugin defines the following hook points:
 
 @item
 @code{on_test_success}: called when a test case run succeeds.
-The hooks are folded over an accumulator of type @code{anvl_test:on_test_success_acc()}:
-a tuple of the argument map of type @code{anvl_test:on_test_success_arg()}
+The hooks are folded over an accumulator of type @erltp{ref,erlref,anvl_test,on_test_success_acc,0}:
+a tuple of the argument map of type @erltp{ref,erlref,anvl_test,on_test_success_arg,0}
 and an iolist.
 The hooks append their log messages to the iolist,
 and the plugin prints it after all hooks complete.
@@ -36,8 +36,8 @@ and the plugin prints it after all hooks complete.
 @item
 @code{on_test_fail}: called when a test case run fails,
 e.g. it crashed or timed out.
-The hooks are folded over an accumulator of type @code{anvl_test:on_test_fail_acc()}:
-a tuple of the argument map of type @code{anvl_test:on_test_fail_arg()},
+The hooks are folded over an accumulator of type @erltp{ref,erlref,anvl_test,on_test_fail_acc,0}:
+a tuple of the argument map of type @erltp{ref,erlref,anvl_test,on_test_fail_arg,0},
 the @code{@{Retry, Fail@}} flags and an iolist.
 Setting @code{Retry} requests re-execution of the test case
 (not implemented yet),
@@ -49,10 +49,10 @@ and the plugin prints it after all hooks complete.
 @code{anvl_test_discover}: called when test suites of an OTP application are being discovered.
 The hooks take the profile and the application name as arguments,
 and return @code{@{ok, Suites@}} or @code{@{error, Suites@}},
-with the same semantics as @code{anvl_test_suite:discover/2}.
+with the same semantics as @erlfn{ref,erlref,anvl_test_suite,discover,2}.
 The plugin combines the results of all hooks into a single tuple of the same shape.
-The default hooks use @code{anvl_test_suite:discover/2}
-and @code{anvl_test_eunit:discover/2}.
+The default hooks use @erlfn{ref,erlref,anvl_test_suite,discover,2}
+and @erlfn{ref,erlref,anvl_test_eunit,discover,2}.
 
 @end itemize
 
@@ -103,7 +103,7 @@ The fun takes the following arguments:
 
 It returns the next value of the accumulator.
 
-A test case is executed when folding the filter specs of @code{run_suite/2}
+A test case is executed when folding the filter specs of @erlfn{ref,erlref,anvl_test,run_suite,2}
 over the accumulator from left to right,
 starting with @code{true},
 yields @code{true}.
@@ -260,7 +260,7 @@ project_model() ->
 -doc """
 Run the test cases of the suite selected by the filters.
 A test case runs when folding over @code{Filters} yields @code{true}
-(see @code{filter_spec()}).
+(see @erltp{ref,erlref,anvl_test,filter_spec,0}).
 The condition fails when a test case fails.
 """.
 -spec run_suite(#suite{}, [filter_spec()]) -> boolean().
@@ -301,7 +301,7 @@ run(Profile, App, Filters) ->
 -doc """
 Run all test cases of the OTP application.
 
-Equivalent to @code{run(Profile, App, [])}.
+Equivalent to @erlfn{ref,erlref,anvl_test,run,3} with an empty filter list.
 """.
 -spec run(anvl_erlc:profile(), anvl_erlc:application()) -> boolean().
 run(Profile, App) ->

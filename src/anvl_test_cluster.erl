@@ -24,7 +24,7 @@ Fixture that creates a familiar cluster on the test node.
 Test cases that need a cluster of their own,
 e.g. for testing distributed functionality,
 add this fixture to their fixture list
-and call @code{get_cluster/0} to learn the ID of the cluster:
+and call @erlfn{ref,erlref,anvl_test_cluster,get_cluster,0} to learn the ID of the cluster:
 
 @verbatim
 -test(foo).

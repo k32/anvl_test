@@ -56,7 +56,7 @@ cluster(run, #{instance := default, familiar := #{net := Net, subnet := 24}}) ->
   ?assertEqual(Node, familiar:call(Site, erlang, node, [])),
   %% The ID of the cluster is in the fixture state of the node:
   ?assertMatch(
-     #{cluster := Cluster},
+     #{test_cluster := Cluster},
      familiar:fixture_state()).
 
 -test(expected_fail).

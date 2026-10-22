@@ -36,7 +36,7 @@ foo(run, #{instance := default}) ->
   {ok, _Node} = familiar:start_site(Site).
 @end verbatim
 
-The cluster runs on the node of the test case,
+The cluster is managed by the temporary node running the test case,
 so it can be managed with the regular @code{familiar} API
 called from the test case.
 
@@ -94,7 +94,7 @@ it reads the fixture state of this node.
 """.
 -spec get_cluster() -> familiar:cluster_id().
 get_cluster() ->
-  #{cluster := Cluster} = familiar:fixture_state(),
+  #{test_cluster := Cluster} = familiar:fixture_state(),
   Cluster.
 
 %%================================================================================
@@ -116,19 +116,23 @@ init_per_node(Site, _Node, Conf, State = #{familiar := #{net := Net, subnet := S
        , auto_shutdown => false
        }),
   case familiar:call(
-         Site, fun() -> familiar:start_link_cluster(ClusterConf) end, ?TIMEOUT) of
+         Site,
+         familiar, start_link_cluster, [ClusterConf],
+         ?TIMEOUT) of
     ok ->
-      {ok, State#{cluster => ClusterId}};
+      {ok, State#{test_cluster => ClusterId}};
     {error, _} = Error ->
       Error
   end.
 
 -doc false.
-cleanup_per_node(Site, _Node, _Conf, #{cluster := ClusterId}, _IsKill) ->
+cleanup_per_node(Site, _Node, _Conf, #{test_cluster := ClusterId}, _IsKill) ->
   %% The test case may have stopped the cluster itself,
   %% so ignore the return value:
   _ = familiar:call(
-        Site, fun() -> familiar:stop_cluster(ClusterId, true) end, ?TIMEOUT),
+        Site,
+        familiar, stop_cluster, [ClusterId, true],
+        ?TIMEOUT),
   ok.
 
 %%================================================================================

@@ -438,9 +438,10 @@ log_test_fail({#{ suite := Suite
 -spec ensure_default_fixtures([familiar:fixture()]) -> [familiar:fixture()].
 ensure_default_fixtures(Fixtures0) ->
   LogLevel = anvl_plugin:conf([anvl_test, log_level]),
+  RootDir = anvl_fn:workdir([?MODULE]),
   HandlerConfig =
     maps:merge(#{level => LogLevel}, anvl_plugin:conf([anvl_test, log_handler_config])),
-  Defaults = [ {familiar_workdir, #{}}
+  Defaults = [ {familiar_workdir, #{root => RootDir}}
              , {familiar_logger, #{ primary_config => #{level => LogLevel}
                                   , handler_config => HandlerConfig
                                   }}

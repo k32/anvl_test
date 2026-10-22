@@ -291,11 +291,13 @@ code_path_fixture(Project, Profile, App) ->
                 Subnet = anvl_test_subnet:take(),
                 try
                   Net = anvl_plugin:conf([anvl_test, net]),
-                  Conf = #{ id       => Cluster
-                          , fixtures => Fixtures
-                          , peer     => #{}
-                          , net      => {127, Net, Subnet, 0}
-                          , subnet   => 24
+                  Env = #{instance => Instance, net => Subnet, subnet => 24},
+                  Conf = #{ id                 => Cluster
+                          , fixtures           => Fixtures
+                          , peer               => #{}
+                          , net                => {127, Net, Subnet, 0}
+                          , subnet             => 24
+                          , fixture_init_state => #{anvl_test => Env}
                           },
                   ok = familiar:start_link_cluster(Conf),
                   %% Note: the cluster fixtures propagate to the sites, so
@@ -303,16 +305,22 @@ code_path_fixture(Project, Profile, App) ->
                   {ok, Site, _Node} = familiar:create_site(Cluster, SiteId,
                                                            #{ start => true
                                                             }),
-                  %% CWD of the site is the workdir created by the fixture:
-                  {ok, Workdir} = familiar:call(Site, file, get_cwd, []),
-                  Env = #{instance => Instance, net => Subnet, subnet => 24},
+                  #{workdir := Workdir} = FixtureState = familiar:fixture_state(Site),
                   RpcTimeout = case Timeout of
                                   infinity -> infinity;
                                   _        -> Timeout + ?TIMEOUT_GRACE_PERIOD
                                 end,
                   Result =
-                    familiar:call(Site, ?MODULE, run_test_with_timeout,
-                                  [Runner, RunnerOptions, Suite, Fun, Env, Timeout], RpcTimeout),
+                    familiar:call(
+                      Site, ?MODULE, run_test_with_timeout,
+                      [ Runner
+                      , RunnerOptions
+                      , Suite
+                      , Fun
+                      , maps:merge(FixtureState, Env)
+                      , Timeout
+                      ],
+                      RpcTimeout),
                   familiar:stop_cluster(Cluster, Result =:= ok),
                   {Result, Workdir}
                 after

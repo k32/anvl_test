@@ -6,8 +6,8 @@ conf() ->
    , [erlang, includes] => ["${src_root}/include", "${src_root}/src", anvl_plugin:includes_dir()]
    , [deps, git] =>
        [#{ id => familiar
-         , repo => "https://github.com/ieQu1/familiar.git"
-         , ref => {tag, "0.1.5"}
+         , repo => "https://github.com/k32/familiar.git"
+         , ref => {branch, "master"}
          }]
    , [erlang, static_checks] =>
        #{ non_runtime_deps => [anvl_core, lee, typerefl]

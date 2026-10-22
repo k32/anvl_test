@@ -11,8 +11,8 @@ conf() ->
    , deps =>
        #{ git =>
             [#{ id => familiar
-              , repo => "https://github.com/k32/familiar.git"
-              , ref => {branch, "master"}
+              , repo => "https://github.com/ieQu1/familiar.git"
+              , ref => {tag, "0.1.6"}
               }]
         , local =>
             [#{ kind => otp_application

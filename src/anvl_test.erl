@@ -291,13 +291,15 @@ code_path_fixture(Project, Profile, App) ->
                 Subnet = anvl_test_subnet:take(),
                 try
                   Net = anvl_plugin:conf([anvl_test, net]),
-                  Env = #{instance => Instance, net => Subnet, subnet => 24},
+                  Env = #{ instance => Instance
+                         , familiar => #{net => Subnet, subnet => 24}
+                         },
                   Conf = #{ id                 => Cluster
                           , fixtures           => Fixtures
                           , peer               => #{}
                           , net                => {127, Net, Subnet, 0}
                           , subnet             => 24
-                          , fixture_init_state => #{anvl_test => Env}
+                          , fixture_init_state => Env
                           },
                   ok = familiar:start_link_cluster(Conf),
                   %% Note: the cluster fixtures propagate to the sites, so

@@ -59,6 +59,45 @@ cluster(run, #{instance := default, familiar := #{net := Net, subnet := 24}}) ->
      #{test_cluster := Cluster},
      familiar:fixture_state()).
 
+%% Each instance of the test case spawns a nested cluster of its own,
+%% with a few sites in it:
+-test(multi_site_cluster).
+multi_site_cluster(instances, _) ->
+  [1, 2];
+multi_site_cluster(fixtures, #{instance := _}) ->
+  [ {familiar_code_path, #{}}
+  , {anvl_test_cluster, #{}}
+  ];
+multi_site_cluster(run, #{instance := _, familiar := #{net := Net, subnet := 24}}) ->
+  Cluster = anvl_test_cluster:get_cluster(),
+  %% Each site occupies its own address in the 127.Net.0.0/24 network
+  %% of the cluster:
+  Sites = [ {Site, Node}
+          || Id <- [site1, site2, site3]
+          , {ok, Site, Node} <- [familiar:create_site(Cluster, Id, #{start => true})]
+          ],
+  ?assertEqual(
+     [atom_to_list(Id) ++ "@127." ++ integer_to_list(Net) ++ ".0." ++ integer_to_list(Octet)
+     || {Id, Octet} <- [{site1, 0}, {site2, 1}, {site3, 2}]
+     ],
+     [atom_to_list(Node) || {_Site, Node} <- Sites]),
+  lists:foreach(
+    fun({Site, Node}) ->
+        ?assertEqual(Node, familiar:call(Site, erlang, node, []))
+    end,
+    Sites),
+  %% The sites are connected to each other, and to the test node that
+  %% started them:
+  [{Site1, _} | Rest] = Sites,
+  lists:foreach(
+    fun({_, Node}) ->
+        pong = familiar:call(Site1, net_adm, ping, [Node])
+    end,
+    Rest),
+  ?assertEqual(
+     lists:sort([node() | [Node || {_, Node} <- Rest]]),
+     lists:sort(familiar:call(Site1, erlang, nodes, []))).
+
 -test(expected_fail).
 expected_fail(run, #{instance := _, familiar := _}) ->
   error(expected_fail).

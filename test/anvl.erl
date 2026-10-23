@@ -28,7 +28,15 @@ conf() ->
    }.
 
 ?MEMO(all,
-      precondition([suite_load_test(), run_test(), discover_test()])).
+      precondition([serial_tests(), suite_load_test(), run_test(), discover_test()])).
+
+%% The peer nodes of the nested clusters flake when several test cases
+%% bootstrap them at the same time, so run the test cases one by one:
+?MEMO(serial_tests,
+      begin
+        anvl_resource:set_max(anvl_test, 1),
+        false
+      end).
 
 ?MEMO(discover_test,
       begin
@@ -60,11 +68,13 @@ conf() ->
                             }]
                 }
         ] = lists:keysort(#suite.suite, Suites0),
-        [cluster, expected_fail, foo, parent_node_is_hidden, sleepy] = lists:sort(Tests0),
+        [cluster, expected_fail, foo, multi_site_cluster, parent_node_is_hidden, sleepy] = lists:sort(Tests0),
         [ #tc{name = cluster, inst = default, tags = [], timeout = 30000}
         , #tc{name = expected_fail, inst = default, tags = [], timeout = 30000}
         , #tc{name = foo, inst = 1, tags = [tag_1], timeout = 1000}
         , #tc{name = foo, inst = 2, tags = [tag_2], timeout = 30000}
+        , #tc{name = multi_site_cluster, inst = 1, tags = [], timeout = 30000}
+        , #tc{name = multi_site_cluster, inst = 2, tags = [], timeout = 30000}
         , #tc{name = parent_node_is_hidden, inst = default, tags = [], timeout = 30000}
         , #tc{name = sleepy, inst = default, tags = [], timeout = 200}
         ] = lists:sort(TCs0),
@@ -81,11 +91,13 @@ conf() ->
               , tags = []
               , tcs = TCs0
               } = Suite0,
-        [cluster, expected_fail, foo, parent_node_is_hidden, sleepy] = lists:sort(Tests0),
+        [cluster, expected_fail, foo, multi_site_cluster, parent_node_is_hidden, sleepy] = lists:sort(Tests0),
         [ #tc{name = cluster, inst = default, tags = [], timeout = 30000}
         , #tc{name = expected_fail, inst = default, tags = [], timeout = 30000}
         , #tc{name = foo, inst = 1, tags = [tag_1], timeout = 1000}
         , #tc{name = foo, inst = 2, tags = [tag_2], timeout = 30000}
+        , #tc{name = multi_site_cluster, inst = 1, tags = [], timeout = 30000}
+        , #tc{name = multi_site_cluster, inst = 2, tags = [], timeout = 30000}
         , #tc{name = parent_node_is_hidden, inst = default, tags = [], timeout = 30000}
         , #tc{name = sleepy, inst = default, tags = [], timeout = 200}
         ] = lists:sort(TCs0),
@@ -129,7 +141,7 @@ conf() ->
            end,
            fun(Trace) ->
                Successes = ?of_kind(on_testcase_success, Trace),
-               [cluster, foo, foo, parent_node_is_hidden] =
+               [cluster, foo, foo, multi_site_cluster, multi_site_cluster, parent_node_is_hidden] =
                  lists:sort([Name || #{ suite := att0
                                       , tc := #tc{name = Name}
                                       } <- Successes]),

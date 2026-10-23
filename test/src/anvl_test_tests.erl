@@ -141,10 +141,11 @@
 %% The test cases of the att0 suite, as they must be discovered from the
 %% module, sorted by name and instance:
 expected_tcs() ->
-  ClusterFixtures = [ {familiar_code_path, #{}}
+  CodePathFixture = anvl_test:code_path_fixture(anvl_project:root(), test, anvl_test_test),
+  ClusterFixtures = [ CodePathFixture
                     , {anvl_test_cluster, #{}}
                     ],
-  GlobalFixtures = [ {familiar_code_path, #{}}
+  GlobalFixtures = [ CodePathFixture
                    , {familiar_workdir, #{}}
                    ],
   [ #tc{ name = cluster, inst = default, tags = []

@@ -10,10 +10,13 @@ Test suite that doesn't have any global tags or fixtures.
 -include_lib("anvl_test/include/anvl_test.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
+%% Fixture with the code paths of the closure of the test application:
+-define(CODE_PATH_FIXTURE, anvl_test:code_path_fixture(anvl_project:root(), test, anvl_test_test)).
+
 %% Override a fixture that anvl_test sets itself, to check the warning:
 -export([fixtures/0]).
 fixtures() ->
-  [ {familiar_code_path, #{}}
+  [ ?CODE_PATH_FIXTURE
   , {familiar_workdir, #{}}
   ].
 
@@ -41,7 +44,7 @@ parent_node_is_hidden(crash, Env) ->
 %% Create a nested cluster using the anvl_test_cluster fixture:
 -test(cluster).
 cluster(fixtures, #{instance := default}) ->
-  [ {familiar_code_path, #{}}
+  [ ?CODE_PATH_FIXTURE
   , {anvl_test_cluster, #{}}
   ];
 cluster(run, #{instance := default, familiar := #{net := Net, subnet := 24}}) ->
@@ -65,7 +68,7 @@ cluster(run, #{instance := default, familiar := #{net := Net, subnet := 24}}) ->
 multi_site_cluster(instances, _) ->
   [1, 2];
 multi_site_cluster(fixtures, #{instance := _}) ->
-  [ {familiar_code_path, #{}}
+  [ ?CODE_PATH_FIXTURE
   , {anvl_test_cluster, #{}}
   ];
 multi_site_cluster(run, #{instance := _, familiar := #{net := Net, subnet := 24}}) ->

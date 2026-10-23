@@ -92,7 +92,6 @@ suite(Module) ->
   #suite{ suite           = Module
         , runner          = ?MODULE
         , runner_options  = Options
-        , tests           = [eunit]
         , fixtures        = []
         , tags            = []
         , tcs             = [#tc{ name     = eunit

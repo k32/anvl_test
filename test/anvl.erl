@@ -35,13 +35,11 @@ conf() ->
         {ok, Suites0} = anvl_test:discover(test, anvl_test_test),
         [ #suite{ suite = att0
                 , runner = anvl_test_suite
-                , tests = Tests0
                 , tags = []
                 , tcs = TCs0
                 }
         , #suite{ suite = att_eunit
                 , runner = anvl_test_eunit
-                , tests = [eunit]
                 , tags = []
                 , tcs = [#tc{ name = eunit
                             , inst = default
@@ -50,7 +48,6 @@ conf() ->
                 }
         , #suite{ suite = att_eunit_fail
                 , runner = anvl_test_eunit
-                , tests = [eunit]
                 , tags = []
                 , tcs = [#tc{ name = eunit
                             , inst = default
@@ -58,7 +55,6 @@ conf() ->
                             }]
                 }
         ] = lists:keysort(#suite.suite, Suites0),
-        [cluster, expected_fail, foo, multi_site_cluster, parent_node_is_hidden, sleepy] = lists:sort(Tests0),
         [ #tc{name = cluster, inst = default, tags = [], timeout = 30000}
         , #tc{name = expected_fail, inst = default, tags = [], timeout = 30000}
         , #tc{name = foo, inst = 1, tags = [tag_1], timeout = 1000}
@@ -77,11 +73,9 @@ conf() ->
         {ok, Suite0} = anvl_test_suite:load(anvl_project:root(), test, anvl_test_test, att0),
         #suite{ suite = att0
               , runner = anvl_test_suite
-              , tests = Tests0
               , tags = []
               , tcs = TCs0
               } = Suite0,
-        [cluster, expected_fail, foo, multi_site_cluster, parent_node_is_hidden, sleepy] = lists:sort(Tests0),
         [ #tc{name = cluster, inst = default, tags = [], timeout = 30000}
         , #tc{name = expected_fail, inst = default, tags = [], timeout = 30000}
         , #tc{name = foo, inst = 1, tags = [tag_1], timeout = 1000}

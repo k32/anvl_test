@@ -19,7 +19,6 @@
         { suite :: anvl_test:suite()
         , runner = anvl_test_suite :: module()
         , runner_options
-        , tests :: [anvl_test_suite:test()]
         , fixtures :: [familiar:fixture()]
         , tags :: list()
         , tcs :: [#tc{}]

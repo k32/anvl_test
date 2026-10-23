@@ -295,7 +295,6 @@ load(Project, Profile, App, Module) ->
     {ok, TCs} ?= tcs(Module, GlobalFixtures, GlobalInstances, GlobalTimeout, Tests, []),
     {ok, #suite{ suite = Module
                , runner = anvl_test_suite
-               , tests = Tests
                , tags = Tags
                , tcs = TCs
                }}

@@ -71,9 +71,10 @@ The cluster is destroyed when the node of the test case is stopped.
 
 Modules with exported functions of arity 0
 whose names end in @code{_test} or @code{_test_}
-are discovered as test suites as well.
-Each such module becomes a suite with a single test case,
-which runs all the EUnit tests of the module on the test site.
+are discovered as test cases as well.
+Each OTP application with such modules becomes a single suite
+with one test case per module,
+running all the EUnit tests of the module on the test site.
 EUnit manages its own test structure, fixtures and timeouts.
 
 Modules named like @code{foo_tests} are skipped

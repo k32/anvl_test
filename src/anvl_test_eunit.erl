@@ -21,9 +21,10 @@
 -moduledoc """
 Runner for EUnit test modules.
 
-Each module containing EUnit test functions,
-i.e. exported functions of arity 0 with names ending in @code{_test} or @code{_test_},
-is mapped to a suite with a single test case,
+Each OTP application containing EUnit test modules,
+i.e. modules with exported functions of arity 0
+with names ending in @code{_test} or @code{_test_},
+is mapped to a suite with one test case per such module,
 which executes all the EUnit tests of the module via @code{eunit:test/1} on the test site.
 EUnit manages its own test structure, fixtures and timeouts.
 
@@ -45,16 +46,16 @@ tests as part of @code{foo}.
 %% Types
 %%--------------------------------------------------------------------------------
 
-%% Name of the single test case of an EUnit suite:
--type test() :: eunit.
+%% Name of the test case of an EUnit suite: the module with the EUnit tests:
+-type test() :: module().
 
 %%--------------------------------------------------------------------------------
 %% behavior callbacks
 %%--------------------------------------------------------------------------------
 
 -doc false.
--spec run_test(list(), module(), test(), map(), timeout()) -> ok.
-run_test(Options, Module, _Test, _Env, _Timeout) ->
+-spec run_test(list(), anvl_erlc:application(), test(), map(), timeout()) -> ok.
+run_test(Options, _App, Module, _Env, _Timeout) ->
   case eunit:test(Module, Options) of
     ok             -> ok;
     error          -> error(eunit_failed);
@@ -69,18 +70,21 @@ discover(Profile, App) ->
   _ = precondition(anvl_erlc:app_compiled(Profile, App)),
   Ctx = anvl_erlc:app_info(Profile, App),
   Modules = anvl_erlc:app_modules(Profile, App),
-  Suites = [suite(Module) || Module <- Modules
-                           , has_eunit_tests(Ctx, Module)
-                           , not is_chained(Module, Modules)
-                           ],
-  {ok, Suites}.
+  TCs = [tc(Module) || Module <- Modules
+                     , has_eunit_tests(Ctx, Module)
+                     , not is_chained(Module, Modules)
+                     ],
+  case TCs of
+    [] -> {ok, []};
+    _  -> {ok, [suite(App, TCs)]}
+  end.
 
 %%--------------------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------------------
 
--spec suite(module()) -> #suite{}.
-suite(Module) ->
+-spec suite(anvl_erlc:application(), [#tc{}]) -> #suite{}.
+suite(App, TCs) ->
   Options = [ {print_depth, anvl_plugin:conf([anvl_test, eunit, print_depth])}
             , {scale_timeouts, anvl_plugin:conf([anvl_test, eunit, scale_timeouts])}
             | case anvl_plugin:conf([anvl_test, eunit, verbose]) of
@@ -89,18 +93,23 @@ suite(Module) ->
               end
             ],
   %% Timeout is infinity, because EUnit manages the timeouts internally:
-  #suite{ suite           = Module
+  #suite{ suite           = App
         , runner          = ?MODULE
         , runner_options  = Options
         , fixtures        = []
         , tags            = []
-        , tcs             = [#tc{ name     = eunit
-                                , inst      = default
-                                , tags      = []
-                                , fixtures  = [{familiar_code_path, #{}}]
-                                , timeout   = infinity
-                                }]
+        , tcs             = TCs
         }.
+
+-spec tc(module()) -> #tc{}.
+tc(Module) ->
+  %% Timeout is infinity, because EUnit manages the timeouts internally:
+  #tc{ name     = Module
+     , inst     = default
+     , tags     = []
+     , fixtures = [{familiar_code_path, #{}}]
+     , timeout  = infinity
+     }.
 
 %% Scan the beam file of the module instead of the loaded module, since
 %% the latter may be compiled without the tests:

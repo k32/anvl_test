@@ -9,14 +9,12 @@ conf() ->
   #{ plugins => [anvl_erlc, anvl_git, anvl_rebar3, anvl_test]
    , conditions => [all]
    , deps =>
-       #{ git =>
-            [#{ id => familiar
-              , repo => "https://github.com/ieQu1/familiar.git"
-              , ref => {tag, "0.1.6"}
-              }]
-        , local =>
+       #{ local =>
             [#{ kind => otp_application
               , dir => "../"
+              }
+           ,#{ kind => otp_application
+              , dir => "../familiar"
               }]
         }
    , [erlang, overrides] =>
@@ -28,15 +26,7 @@ conf() ->
    }.
 
 ?MEMO(all,
-      precondition([serial_tests(), suite_load_test(), run_test(), discover_test()])).
-
-%% The peer nodes of the nested clusters flake when several test cases
-%% bootstrap them at the same time, so run the test cases one by one:
-?MEMO(serial_tests,
-      begin
-        anvl_resource:set_max(anvl_test, 1),
-        false
-      end).
+      precondition([suite_load_test(), run_test(), discover_test()])).
 
 ?MEMO(discover_test,
       begin

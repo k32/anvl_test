@@ -7,10 +7,10 @@ conf() ->
        #{ includes => ["${src_root}/include", "${src_root}/src", anvl_plugin:includes_dir()]
         , [static_checks, non_runtime_deps] => [anvl_core, anvl_erlc, lee, typerefl]
         }
-   , [deps, git] =>
+   , [deps, local] =>
        [#{ id => familiar
-         , repo => "https://github.com/ieQu1/familiar.git"
-         , ref => {tag, "0.1.6"}
+         , kind => otp_application
+         , dir => "familiar"
          }]
    , texinfo =>
        #{ compile =>

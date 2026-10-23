@@ -34,12 +34,14 @@
                 , tags = []
                 }
         ] = lists:keysort(#suite.suite, Suites0),
+        %% One test case per EUnit test module of the application:
+        CodePathFixture = anvl_test:code_path_fixture(anvl_project:root(), test, anvl_test_test),
         ?assertEqual(
            [ #tc{ name = att_eunit, inst = default, tags = []
-                 , fixtures = [{familiar_code_path, #{}}], timeout = infinity
+                 , fixtures = [CodePathFixture], timeout = infinity
                  }
            , #tc{ name = att_eunit_fail, inst = default, tags = []
-                 , fixtures = [{familiar_code_path, #{}}], timeout = infinity
+                 , fixtures = [CodePathFixture], timeout = infinity
                  }
            ],
            lists:sort(EUnitTCs)),

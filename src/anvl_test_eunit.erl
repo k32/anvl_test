@@ -70,10 +70,11 @@ discover(Profile, App) ->
   _ = precondition(anvl_erlc:app_compiled(Profile, App)),
   Ctx = anvl_erlc:app_info(Profile, App),
   Modules = anvl_erlc:app_modules(Profile, App),
-  TCs = [tc(Module) || Module <- Modules
-                     , has_eunit_tests(Ctx, Module)
-                     , not is_chained(Module, Modules)
-                     ],
+  CodePathFixture = anvl_test:code_path_fixture(anvl_project:root(), Profile, App),
+  TCs = [tc(CodePathFixture, Module) || Module <- Modules
+                                      , has_eunit_tests(Ctx, Module)
+                                      , not is_chained(Module, Modules)
+                                      ],
   case TCs of
     [] -> {ok, []};
     _  -> {ok, [suite(App, TCs)]}
@@ -101,13 +102,13 @@ suite(App, TCs) ->
         , tcs             = TCs
         }.
 
--spec tc(module()) -> #tc{}.
-tc(Module) ->
+-spec tc(familiar:fixture(), module()) -> #tc{}.
+tc(CodePathFixture, Module) ->
   %% Timeout is infinity, because EUnit manages the timeouts internally:
   #tc{ name     = Module
      , inst     = default
      , tags     = []
-     , fixtures = [{familiar_code_path, #{}}]
+     , fixtures = [CodePathFixture]
      , timeout  = infinity
      }.
 

@@ -243,9 +243,8 @@ get_timeout(Module, Test, Instance, GlobalTimeout) ->
       {error, [Module, Test, Instance], Err}
   end.
 
-default_fixtures() ->
-  [ {familiar_code_path, #{}}
-  ].
+default_fixtures(Project, Profile, App) ->
+  [anvl_test:code_path_fixture(Project, Profile, App)].
 
 %%--------------------------------------------------------------------------
 %% Internal exports
@@ -286,7 +285,7 @@ load(Project, Profile, App, Module) ->
                               Project,
                               Profile,
                               App,
-                              opt_call(Module, fixtures, [], default_fixtures())),
+                              opt_call(Module, fixtures, [], default_fixtures(Project, Profile, App))),
     ok ?= validate_fixtures(GlobalFixtures),
     {ok, GlobalInstances} ?= opt_call(Module, instances, [], [default]),
     ok ?= validate_instances(GlobalInstances),

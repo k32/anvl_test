@@ -348,7 +348,6 @@ code_path_fixture(Project, Profile, App) ->
 %% the way:
 ?MEMO(executed, RunId, Runner, RunnerOptions, Suite, TC,
       begin
-        precondition(dist_started()),
         #tc{name = Fun, inst = Instance, fixtures = Fixtures0, timeout = Timeout} = TC,
         SiteId = list_to_binary(peer:random_name(atom_to_list(Fun))),
         Cluster = SiteId,
@@ -524,9 +523,3 @@ ensure_default_fixtures(Fixtures0) ->
   end,
   Fixtures = [Fix || {F, _} = Fix <- Fixtures0, not lists:keymember(F, 1, Defaults)],
   Defaults ++ Fixtures.
-
-?MEMO(dist_started,
-      begin
-        familiar:ensure_distr(#{hidden => true, name_domain => longnames}),
-        false
-      end).

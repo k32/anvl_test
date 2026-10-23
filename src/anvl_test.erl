@@ -251,7 +251,7 @@ model() ->
 
 -doc false.
 project_model() ->
-  #{ anv_test =>
+  #{ anvl_test =>
        #{ extra_apps =>
             {[value],
              #{ oneliner => "Extra applications that have to be loaded on the test nodes"
@@ -342,8 +342,7 @@ Create a standard fixture for loading the code.
 -spec code_path_fixture(anvl_project:t(), anvl_erlc:profile(), anvl_erlc:application()) -> familiar:fixture().
 code_path_fixture(Project, Profile, App) ->
   %% FIXME: anvl bug
-  %% Extra = anvl_project:conf(Project, [anvl_test, extra_apps]),
-  Extra = [],
+  Extra = anvl_project:conf(Project, [anvl_test, extra_apps]),
   precondition([anvl_erlc:app_compiled(Profile, I) || I <- Extra]),
   {Apps, _} = anvl_erlc:app_closure(Profile, [App, anvl_test | Extra]),
   Paths = [filename:join(anvl_erlc:app_path(Profile, I), "ebin") || I <- Apps],

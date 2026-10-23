@@ -8,11 +8,12 @@ mitigation applied in this repository.
 > **Status update:** the library-level mitigation described in
 > [What this repository does](#what-this-repository-does) is now
 > implemented: the builds use a local clone of familiar at `./familiar`
-> (branch `anvl-boot-flake-mitigation`) with a peer boot retry, and the
-> test cases run in parallel again (the `serial_tests` workaround was
+> (branch `anvl-boot-flake-mitigation`) with a peer boot retry and the
+> site RPC routed over the peer TCP control connection, and the test
+> cases run in parallel again (the `serial_tests` workaround was
 > removed). The standalone stress test below (6 concurrent clusters) can
 > still exhaust the retries, but the parallel anvl test suite — the
-> actual use case — passed 13 consecutive runs with 0 failures.
+> actual use case — passed many consecutive runs with 0 failures.
 
 ## Failure signature
 
@@ -97,9 +98,10 @@ inside the child could not be pinned down: the child produces no output
 listener, talks to epmd) and then stalls; killing and retrying the boot
 usually succeeds — until the retries are exhausted under heavy load.
 Switching the boot handshake to a TCP control connection
-(`peer => #{connection => 0}`) was also tested and did *not* fix the
-concurrent case, so the failure is deeper in the boot than the
-origin-monitor channel.
+(`peer => #{connection => 0}`) alone did *not* fix the concurrent boot
+either, so the failure is deeper in the boot than the origin-monitor
+channel — but it does remove the distribution from the manager↔site RPC
+path (see below), which is why it was kept.
 
 ## Evidence
 
@@ -137,7 +139,7 @@ per-cluster `/24` networks assumes boot connections are reliable.
 
 The build uses a local clone of familiar at `./familiar` (gitignored,
 branch `anvl-boot-flake-mitigation`) instead of the upstream `0.1.6` tag,
-with two changes:
+with three changes:
 
 - `familiar_site:do_start` retries `peer:start_link` a few times with a
   1 s delay when the boot fails or times out (the last attempt
@@ -146,18 +148,22 @@ with two changes:
   that a naive retry at the call site runs into.
 - `default_peer_opts` sets `wait_boot => 5_000` so that several attempts
   fit into a typical test case timeout (the OTP default is 15 s).
+- `default_peer_opts` sets `connection => 0`, and all manager→site RPC
+  (`familiar_site:call`, previously `erpc`) goes over the peer TCP
+  control connection via `peer:call` instead of the distribution. This
+  removes the manager↔site distribution connections entirely: the only
+  remaining distribution traffic is between the sites themselves.
+  `peer:call` only supports MFA, so the fun-variant of the call applies
+  the fun remotely with `erlang:apply/2` (note: `erlang:apply/1` is
+  `undef` on this OTP).
 
 With this mitigation the test cases run in parallel again
-(`max_jobs` default of 10): the parallel suite passed 13 consecutive
+(`max_jobs` default of 10): the parallel suite passed many consecutive
 runs with 0 failures, with the retries visibly kicking in and
 recovering. A 6-way standalone cluster storm can still exhaust the
 retries, so the mitigation is not complete — but it covers the real
 use case. The following further options remain:
 
-- Start sites with a **TCP control connection**
-  (`peer => #{connection => 0}`) instead of the distribution-based
-  origin channel. Tested: does not fix the concurrent case on its own
-  (see "The race" above), so it was not kept.
 - Add jitter/stagger to site starts.
 - Report the issue upstream: the failure is in the interaction of
   `peer` node boot with concurrent distribution activity, which

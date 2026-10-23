@@ -174,7 +174,7 @@ model() ->
             {[value, cli_param, anvl_resource],
              #{ oneliner => "Maximum number of tests running in parallel"
               , type => typerefl:range(1, 255)
-              , default => 5
+              , default => 10
               , cli_operand => "j-test"
               , anvl_resource => anvl_test
               }}
@@ -200,14 +200,6 @@ model() ->
               , default => info
               , cli_operand => "test-log-level"
               , os_env => "TEST_LOG_LEVEL"
-              }}
-        , log_handler_config =>
-            {[value, cli_param, os_env],
-             #{ oneliner => "Logger handler configuration of the test nodes, merged over the defaults"
-              , type => map()
-              , default => #{}
-              , cli_operand => "test-log-handler-config"
-              , os_env => "TEST_LOG_HANDLER_CONFIG"
               }}
         , tests =>
             {[map, cli_action],
@@ -519,11 +511,8 @@ log_test_fail({#{ suite := Suite
 ensure_default_fixtures(Fixtures0) ->
   LogLevel = anvl_plugin:conf([anvl_test, log_level]),
   RootDir = anvl_fn:workdir([?MODULE]),
-  HandlerConfig =
-    maps:merge(#{level => LogLevel}, anvl_plugin:conf([anvl_test, log_handler_config])),
   Defaults = [ {familiar_workdir, #{root => RootDir}}
              , {familiar_logger, #{ primary_config => #{level => LogLevel}
-                                  , handler_config => HandlerConfig
                                   }}
              ],
   Overrides = [F || {F, _} <- Fixtures0, lists:keymember(F, 1, Defaults)],

@@ -69,7 +69,7 @@ The plugin itself installs default hooks that log the outcome of each test case 
 -export([run/2, run/3, run_suite/2, discover/2, code_path_fixture/3]).
 
 %% Internal exports:
--export([run_test_with_timeout/6]).
+-export([run_test_with_timeout/6, cluster_log_filter/1, cluster_log_filter/2]).
 
 -include("types.hrl").
 -include("anvl.hrl").
@@ -78,6 +78,12 @@ The plugin itself installs default hooks that log the outcome of each test case 
 %% Timeout on the RPC performed by the parent node, added on top of the
 %% test case timeout:
 -define(TIMEOUT_GRACE_PERIOD, 5000).
+
+%% Filter and handler redirecting the log events tagged with the
+%% cluster and site IDs (see familiar_logger) away from the console:
+-define(CLUSTER_LOG_FILTER, anvl_test_cluster_log_filter).
+-define(CLUSTER_LOG_HANDLER, anvl_test_cluster_log_handler).
+-define(CLUSTER_LOG_FILE, "cluster.log").
 
 %%--------------------------------------------------------------------------
 %% Types
@@ -165,7 +171,7 @@ init() ->
 
 -doc false.
 init_for_project(_Project) ->
-  ok.
+  install_cluster_log_handler().
 
 -doc false.
 model() ->
@@ -200,6 +206,15 @@ model() ->
               , default => info
               , cli_operand => "test-log-level"
               , os_env => "TEST_LOG_LEVEL"
+              }}
+        , show_log =>
+            {[value, cli_param, os_env],
+             #{ oneliner => "Print the log events of the test clusters in the console; "
+                            "they are always written into a separate log file"
+              , type => boolean()
+              , default => false
+              , cli_operand => "test-show-log"
+              , os_env => "TEST_SHOW_LOG"
               }}
         , tests =>
             {[map, cli_action],
@@ -467,6 +482,52 @@ install_default_hooks() ->
   anvl_hook:add(anvl_test_discover, fun anvl_test_suite:discover/2),
   anvl_hook:add(anvl_test_discover, fun anvl_test_eunit:discover/2),
   ok.
+
+-doc false.
+-spec install_cluster_log_handler() -> ok.
+install_cluster_log_handler() ->
+  case anvl_plugin:conf([anvl_test, show_log]) of
+    false ->
+      %% Hide the log events of the test clusters from the console:
+      _ = logger:remove_handler_filter(default, ?CLUSTER_LOG_FILTER),
+      ok = logger:add_handler_filter(default, ?CLUSTER_LOG_FILTER, cluster_log_filter(false));
+    true ->
+      ok
+  end,
+  %% Redirect the log events of the test clusters into a dedicated file:
+  LogFile = filename:join(anvl_fn:workdir([?MODULE]), ?CLUSTER_LOG_FILE),
+  ok = filelib:ensure_dir(LogFile),
+  _ = logger:remove_handler(?CLUSTER_LOG_HANDLER),
+  ok = logger:add_handler(?CLUSTER_LOG_HANDLER, logger_std_h,
+                          #{ config => #{type => {file, unicode:characters_to_list(LogFile)}}
+                           , filters => [{?CLUSTER_LOG_FILTER, cluster_log_filter(true)}]
+                           }),
+  ok.
+
+-doc """
+Return a logger filter
+that passes the log events tagged with the cluster and site IDs
+and stops the rest,
+or the other way around.
+
+The filter is used to hide the log events of the test clusters
+from the default console handler,
+and, with the opposite flag,
+to redirect them into the dedicated cluster log file.
+""".
+-spec cluster_log_filter(KeepTagged :: boolean()) ->
+        {fun((logger:log_event(), boolean()) -> logger:log_event() | stop), boolean()}.
+cluster_log_filter(KeepTagged) ->
+  {fun ?MODULE:cluster_log_filter/2, KeepTagged}.
+
+-doc false.
+-spec cluster_log_filter(logger:log_event(), boolean()) -> logger:log_event() | stop.
+cluster_log_filter(Event = #{meta := Meta}, KeepTagged) ->
+  Tagged = maps:is_key(cluster, Meta) andalso maps:is_key(site, Meta),
+  case Tagged =:= KeepTagged of
+    true  -> Event;
+    false -> stop
+  end.
 
 -spec log_test_success(on_test_success_acc()) -> on_test_success_acc().
 log_test_success({#{ suite := Suite

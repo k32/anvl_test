@@ -150,7 +150,7 @@ model() ->
             {[value, cli_param, anvl_resource],
              #{ oneliner => "Maximum number of tests running in parallel"
               , type => typerefl:range(1, 255)
-              , default => 10
+              , default => 1
               , cli_operand => "j-test"
               , anvl_resource => anvl_test
               }}

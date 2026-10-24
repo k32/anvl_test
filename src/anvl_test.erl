@@ -60,16 +60,16 @@ The plugin itself installs default hooks that log the outcome of each test case 
 """.
 
 %% behavior callbacks:
--export([model/0, project_model/0, init/0, init_for_project/1]).
+-export([model/0, project_model/0, init/0, init_for_project/1, conditions/1]).
 
--export_type([suite/0, run_id/0, filter_spec/0, on_test_success_arg/0, on_test_success_acc/0,
+-export_type([run_id/0, on_test_success_arg/0, on_test_success_acc/0,
               on_test_fail_arg/0, on_test_fail_acc/0, discover_ret/0]).
 
 %% API:
 -export([run/2, run/3, run_suite/2, discover/2, code_path_fixture/3]).
 
 %% Internal exports:
--export([run_test_with_timeout/6, cluster_log_filter/1, cluster_log_filter/2]).
+-export([run_test_with_timeout/6]).
 
 -include("types.hrl").
 -include("anvl.hrl").
@@ -79,50 +79,20 @@ The plugin itself installs default hooks that log the outcome of each test case 
 %% test case timeout:
 -define(TIMEOUT_GRACE_PERIOD, 5000).
 
-%% Filter and handler redirecting the log events tagged with the
-%% cluster and site IDs (see familiar_logger) away from the console:
--define(CLUSTER_LOG_FILTER, anvl_test_cluster_log_filter).
--define(CLUSTER_LOG_HANDLER, anvl_test_cluster_log_handler).
--define(CLUSTER_LOG_FILE, "cluster.log").
-
 %%--------------------------------------------------------------------------
 %% Types
 %%--------------------------------------------------------------------------
 
--type suite() :: module().
+-reflect_type([suite/0, tag/0, testcase/0, instance/0, instances/0, fixture/0]).
+
+-type suite() :: atom().
+-type testcase() :: atom().
+-type tag() :: atom().
+-type instance() :: term().
+-type instances() :: [instance(), ...].
+-type fixture() :: {module(), term()}.
 
 -type run_id() :: term().
-
--doc """
-Specification of a test case filter.
-
-A filter spec is a tuple of a fun and an arbitrary configuration value.
-The fun takes the following arguments:
-
-@enumerate
-@item the runner module
-@item the suite
-@item the @code{#tc@{@}} record of the test case
-@item the configuration value of the spec
-@item the current boolean value of the accumulator
-@end enumerate
-
-It returns the next value of the accumulator.
-
-A test case is executed when folding the filter specs of @erlfn{ref,erlref,anvl_test,run_suite,2}
-over the accumulator from left to right,
-starting with @code{true},
-yields @code{true}.
-""".
--type filter_spec() ::
-        { fun(( Runner :: module()
-              , Suite  :: suite()
-              , TC     :: #tc{}
-              , Conf   :: term()
-              , Acc    :: boolean()
-              ) -> boolean())
-        , Conf :: term()
-        }.
 
 -type on_test_success_arg() ::
         #{ run_id  := run_id()
@@ -171,7 +141,7 @@ init() ->
 
 -doc false.
 init_for_project(_Project) ->
-  install_cluster_log_handler().
+  ok.
 
 -doc false.
 model() ->
@@ -209,8 +179,7 @@ model() ->
               }}
         , show_log =>
             {[value, cli_param, os_env],
-             #{ oneliner => "Print the log events of the test clusters in the console; "
-                            "they are always written into a separate log file"
+             #{ oneliner => "Print the test logs in the console"
               , type => boolean()
               , default => false
               , cli_operand => "test-show-log"
@@ -220,9 +189,64 @@ model() ->
             {[map, cli_action],
              #{ oneliner => "Ad-hoc test jobs"
               , cli_operand => "atest"
-              , key_elements => []
+              , key_elements => [[profile], [application], [suite], [testcase], [tags], [exclude_tags], [runner]]
               },
-             #{
+             #{ profile =>
+                  {[value, cli_param],
+                   #{ oneliner => "Erlang compilation profile"
+                    , type => anvl_erlc:profile()
+                    , default => test
+                    , cli_operand => "profile"
+                    , cli_short => $P
+                    }}
+              , application =>
+                  {[value, cli_param],
+                   #{ oneliner => "Run test for the given application"
+                    , type => union(anvl_erlc:application(), {all})
+                    , default => {all}
+                    , cli_operand => "app"
+                    , cli_short => $a
+                    }}
+              , suite =>
+                  {[value, cli_param],
+                   #{ oneliner => "Run only a specific test suite"
+                    , type => union(suite(), {all})
+                    , default => {all}
+                    , cli_operand => "suite"
+                    , cli_short => $s
+                    }}
+              , testcase =>
+                  {[value, cli_param],
+                   #{ oneliner => "Run only a specific test case"
+                    , type => union(testcase(), {all})
+                    , default => {all}
+                    , cli_operand => "case"
+                    , cli_short => $c
+                    }}
+              , tags =>
+                  {[value, cli_param],
+                   #{ oneliner => "Run tests with the specified tags"
+                    , type => union(list(tag()), {all})
+                    , default => {all}
+                    , cli_operand => "tags"
+                    , cli_short => $t
+                    }}
+              , exclude_tags =>
+                  {[value, cli_param],
+                   #{ oneliner => "Exclude tests with the specified tags"
+                    , type => list(tag())
+                    , default => []
+                    , cli_operand => "without-tags"
+                    , cli_short => $T
+                    }}
+              , runner =>
+                  {[value, cli_param],
+                   #{ oneliner => "Select tests using only the specified runner"
+                    , type => union(module(), {all})
+                    , default => {all}
+                    , cli_operand => "runner"
+                    , cli_short => $r
+                    }}
               }}
         , eunit =>
             #{ verbose =>
@@ -260,6 +284,45 @@ project_model() ->
               }}
         }}.
 
+conditions(Project) ->
+  lists:flatmap(
+    fun([_, _, {Profile, SelectApp, SelectSuite, SelectTestcase, Tags, ExcludeTags, Runner}]) ->
+        select(Project, Profile, SelectApp, SelectSuite, SelectTestcase, Tags, ExcludeTags, Runner)
+    end,
+    anvl_plugin:list_conf([anvl_test, tests, {}])).
+
+-spec select(
+        anvl_project:t(),
+        anvl_erlc:profile(),
+        anvl_erlc:application() | {all},
+        suite() | {all},
+        testcase() | {all},
+        [tag()] | {all},
+        [tag()],
+        module() | {all}
+       ) -> [anvl_condition:t()].
+select(Project, Profile, SelectApp, SelectSuite, SelectTestcase, Tags, ExcludeTags, Runner) ->
+  AllApps = anvl_erlc:umbrella(Profile, Project),
+  Apps = case SelectApp of
+           {all} ->
+             AllApps;
+           _ ->
+             case lists:member(SelectApp, AllApps) of
+               true  -> [SelectApp];
+               false -> ?UNSAT("Application ~p is not found in the project", [SelectApp])
+             end
+         end,
+  Filters = [ anvl_test_filters:by_runner(Runner)
+            , anvl_test_filters:by_suite(SelectSuite)
+            , anvl_test_filters:by_testcase(SelectTestcase)
+            , anvl_test_filters:by_tags(Tags, ExcludeTags)
+            ],
+  [X ||
+      App <- Apps,
+      {_, Suites} <- [discover(Profile, App)],
+      Suite <- Suites,
+      X <- schedule_suite(Suite, Filters)].
+
 %%--------------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------------
@@ -267,34 +330,31 @@ project_model() ->
 -doc """
 Run the test cases of the suite selected by the filters.
 A test case runs when folding over @code{Filters} yields @code{true}
-(see @erltp{ref,erlref,anvl_test,filter_spec,0}).
+(see @erltp{ref,erlref,anvl_test_filter,spec,0}).
 The condition fails when a test case fails.
 """.
--spec run_suite(#suite{}, [filter_spec()]) -> boolean().
-run_suite(#suite{suite = Suite, runner = Runner, runner_options = RunnerOptions, tcs = TCs}, Filters) ->
-  RunId = 1,
-  precondition([executed(RunId, Runner, RunnerOptions, Suite, TC)
-                || TC <:- TCs,
-                   passes_filters(Runner, Suite, TC, Filters)]).
+-spec run_suite(#suite{}, [anvl_test_filter:spec()]) -> boolean().
+run_suite(#suite{} = Suite, Filters) ->
+  precondition(schedule_suite(Suite, Filters)).
 
--doc false.
--spec passes_filters(module(), suite(), #tc{}, [filter_spec()]) -> boolean().
-passes_filters(Runner, Suite, TC, Filters) ->
-  lists:foldl(fun({Fun, Conf}, Acc) -> Fun(Runner, Suite, TC, Conf, Acc) end,
-              true,
-              Filters).
+-spec schedule_suite(#suite{}, [anvl_test_filter:spec()]) -> [anvl_condition:t()].
+schedule_suite(#suite{suite = Suite, runner = Runner, runner_options = RunnerOptions, tcs = TCs} = S, Filters) ->
+  RunId = 1,
+  [executed(RunId, Runner, RunnerOptions, Suite, TC)
+   || TC <:- TCs,
+      anvl_test_filters:passes(Runner, S, TC, Filters)].
 
 -doc """
 Discover the test suites of the OTP application
 and run their test cases selected by the filters
-(see @code{filter_spec()}).
+(@erltp{pxref,erldef,anvl_test_filters,spec,0}).
 
 The suites that could not be loaded are skipped,
 but the whole run fails in the end,
 because the test selection is incomplete.
 The run also fails when a test case fails.
 """.
--spec run(anvl_erlc:profile(), anvl_erlc:application(), [filter_spec()]) -> boolean().
+-spec run(anvl_erlc:profile(), anvl_erlc:application(), [anvl_test_filter:spec()]) -> boolean().
 run(Profile, App, Filters) ->
   {Status, Suites} = discover(Profile, App),
   Changed = lists:foldl(fun(Suite, Acc) -> run_suite(Suite, Filters) orelse Acc end,
@@ -363,12 +423,13 @@ code_path_fixture(Project, Profile, App) ->
 ?MEMO(executed, RunId, Runner, RunnerOptions, Suite, TC,
       begin
         #tc{name = Fun, inst = Instance, fixtures = Fixtures0, timeout = Timeout} = TC,
+        precondition(env_set_up()),
         SiteId = list_to_binary(peer:random_name(atom_to_list(Fun))),
         Cluster = SiteId,
         %% Limit the number of test cases running in parallel. Note: the
         %% resource cannot be held while invoking preconditions, so the
         %% result handling is kept outside of the critical section:
-        Fixtures = ensure_default_fixtures(Fixtures0),
+        Fixtures = ensure_default_fixtures(Suite, TC, Fixtures0),
         {Result, Workdir} =
           anvl_resource:with(
             anvl_test,
@@ -443,6 +504,12 @@ code_path_fixture(Project, Profile, App) ->
         end
       end).
 
+?MEMO(env_set_up,
+      begin
+        anvl_test_logger:install_cluster_log_handler(),
+        false
+      end).
+
 -doc false.
 %% This function is executed on the test site,
 %% so the watchdog aborts the execution of the test case there:
@@ -482,52 +549,6 @@ install_default_hooks() ->
   anvl_hook:add(anvl_test_discover, fun anvl_test_eunit:discover/2),
   ok.
 
--doc false.
--spec install_cluster_log_handler() -> ok.
-install_cluster_log_handler() ->
-  case anvl_plugin:conf([anvl_test, show_log]) of
-    false ->
-      %% Hide the log events of the test clusters from the console:
-      _ = logger:remove_handler_filter(default, ?CLUSTER_LOG_FILTER),
-      ok = logger:add_handler_filter(default, ?CLUSTER_LOG_FILTER, cluster_log_filter(false));
-    true ->
-      ok
-  end,
-  %% Redirect the log events of the test clusters into a dedicated file:
-  LogFile = filename:join(anvl_fn:workdir([?MODULE]), ?CLUSTER_LOG_FILE),
-  ok = filelib:ensure_dir(LogFile),
-  _ = logger:remove_handler(?CLUSTER_LOG_HANDLER),
-  ok = logger:add_handler(?CLUSTER_LOG_HANDLER, logger_std_h,
-                          #{ config => #{type => {file, unicode:characters_to_list(LogFile)}}
-                           , filters => [{?CLUSTER_LOG_FILTER, cluster_log_filter(true)}]
-                           }),
-  ok.
-
--doc """
-Return a logger filter
-that passes the log events tagged with the cluster and site IDs
-and stops the rest,
-or the other way around.
-
-The filter is used to hide the log events of the test clusters
-from the default console handler,
-and, with the opposite flag,
-to redirect them into the dedicated cluster log file.
-""".
--spec cluster_log_filter(KeepTagged :: boolean()) ->
-        {fun((logger:log_event(), boolean()) -> logger:log_event() | stop), boolean()}.
-cluster_log_filter(KeepTagged) ->
-  {fun ?MODULE:cluster_log_filter/2, KeepTagged}.
-
--doc false.
--spec cluster_log_filter(logger:log_event(), boolean()) -> logger:log_event() | stop.
-cluster_log_filter(Event = #{meta := Meta}, KeepTagged) ->
-  Tagged = maps:is_key(cluster, Meta) andalso maps:is_key(site, Meta),
-  case Tagged =:= KeepTagged of
-    true  -> Event;
-    false -> stop
-  end.
-
 -spec log_test_success(on_test_success_acc()) -> on_test_success_acc().
 log_test_success({#{ suite := Suite
                    , tc := #tc{name = Fun, inst = Instance}
@@ -566,13 +587,12 @@ log_test_fail({#{ suite := Suite
 %% Each test case cluster runs in a dedicated working directory created by
 %% the familiar_workdir fixture, and familiar_logger writes the node logs
 %% there. These fixtures are mandatory: the user cannot override them:
--spec ensure_default_fixtures([familiar:fixture()]) -> [familiar:fixture()].
-ensure_default_fixtures(Fixtures0) ->
-  LogLevel = anvl_plugin:conf([anvl_test, log_level]),
+-spec ensure_default_fixtures(suite(), #tc{}, [familiar:fixture()]) -> [familiar:fixture()].
+ensure_default_fixtures(_Suite, _TC, Fixtures0) ->
   RootDir = anvl_fn:workdir([?MODULE]),
+  TestId = erlang:monotonic_time(millisecond),
   Defaults = [ {familiar_workdir, #{root => RootDir}}
-             , {familiar_logger, #{ primary_config => #{level => LogLevel}
-                                  }}
+             , anvl_test_logger:logger_fixture(TestId)
              ],
   Overrides = [F || {F, _} <- Fixtures0, lists:keymember(F, 1, Defaults)],
   case Overrides of

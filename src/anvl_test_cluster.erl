@@ -107,9 +107,9 @@ init_per_node(Site, _Node, Conf, State = #{familiar := #{net := Net, subnet := S
   ClusterConf =
     maps:merge(
       Conf,
-      #{ id     => ClusterId
-       , net    => {127, Net, 0, 0}
-       , subnet => Subnet
+      #{ id            => ClusterId
+       , net           => {127, Net, 0, 0}
+       , subnet        => Subnet
        %% The cluster is created by a short-lived RPC process,
        %% and would be destroyed together with it
        %% if the auto shutdown was enabled:

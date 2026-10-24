@@ -2,10 +2,10 @@
 -define(ANVL_TEST_INTERNAL_HRL, true).
 
 -record(tc,
-        { name :: atom()
-        , inst :: anvl_test_suite:instance()
-        , tags :: list()
-        , fixtures :: [anvl_test_suite:fixture()]
+        { name :: anvl_test:testcase()
+        , inst :: anvl_test:instance()
+        , tags :: [anvl_test:tag()]
+        , fixtures :: [anvl_test:fixture()]
         , timeout :: timeout()
         }).
 
@@ -20,7 +20,7 @@
         , runner = anvl_test_suite :: module()
         , runner_options
         , fixtures :: [familiar:fixture()]
-        , tags :: list()
+        , tags :: [anvl_test:tag()]
         , tcs :: [#tc{}]
         }).
 

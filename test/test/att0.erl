@@ -10,6 +10,8 @@ Test suite that doesn't have any global tags or fixtures.
 -include_lib("anvl_test/include/anvl_test.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
+-include_lib("kernel/include/logger.hrl").
+
 %% Fixture with the code paths of the closure of the test application:
 -define(CODE_PATH_FIXTURE, anvl_test:code_path_fixture(anvl_project:root(), test, anvl_test_test)).
 
@@ -30,7 +32,8 @@ foo(tags, #{instance := Inst}) ->
   end;
 foo(timeout, #{instance := 1}) ->
   1000;
-foo(run, #{instance := _, familiar := #{net := Net, subnet := 24}}) ->
+foo(run, #{instance := Instance, familiar := #{net := Net, subnet := 24}}) ->
+  ?LOG_NOTICE("Hello from foo! ~p", [Instance]),
   check_subnet(Net).
 
 -test(parent_node_is_hidden).
@@ -98,7 +101,7 @@ multi_site_cluster(run, #{instance := _, familiar := #{net := Net, subnet := 24}
     end,
     Rest),
   ?assertEqual(
-     lists:sort([node() | [Node || {_, Node} <- Rest]]),
+     lists:sort([Node || {_, Node} <- Rest]),
      lists:sort(familiar:call(Site1, erlang, nodes, []))).
 
 -test(expected_fail).

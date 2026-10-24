@@ -78,22 +78,9 @@ e.g. @erlcb{ref,erlref,anvl_test_suite,tags,0} or @erlcb{ref,erlref,anvl_test_su
 -include("anvl.hrl").
 -include("anvl_test_internal.hrl").
 
--export_type([test/0]).
--reflect_type([instances/0, fixture/0, tag/0]).
-
 %%--------------------------------------------------------------------------
 %% Types
 %%--------------------------------------------------------------------------
-
--type tag() :: atom().
-
--type test() :: atom().
-
--type instance() :: term().
-
--type instances() :: [instance(), ...].
-
--type fixture() :: {module(), term()}.
 
 %%--------------------------------------------------------------------------
 %% Types
@@ -103,11 +90,11 @@ e.g. @erlcb{ref,erlref,anvl_test_suite,tags,0} or @erlcb{ref,erlref,anvl_test_su
 %% Callbacks
 %%--------------------------------------------------------------------------
 
--callback tags() -> list().
+-callback tags() -> [anvl_test:tag()].
 
--callback fixtures() -> [fixture()].
+-callback fixtures() -> [anvl_test:fixture()].
 
--callback instances() -> instances().
+-callback instances() -> anvl_test:instances().
 
 -doc """
 Return the default timeout for the test cases of the suite, in milliseconds.
@@ -352,7 +339,7 @@ is_suite(Ctx, Module) ->
       false
   end.
 
--spec get_instances(module(), test(), instances()) -> {ok, instances()} | {error, _}.
+-spec get_instances(module(), anvl_test:test(), anvl_test:instances()) -> {ok, anvl_test:instances()} | {error, _}.
 get_instances(Module, Test, GlobalInstances) ->
   maybe
     {ok, Inst} ?= ?MODULE:invoke_method(Module, Test, instances, #{}),
@@ -378,7 +365,7 @@ opt_call(Module, Fun, Args, Default) ->
   end.
 
 validate_instances(L) ->
-  case typerefl:typecheck(instances(), L) of
+  case typerefl:typecheck(anvl_test:instances(), L) of
     ok ->
       ok;
     {error, Err} ->
@@ -386,7 +373,7 @@ validate_instances(L) ->
   end.
 
 validate_tags(L) ->
-  case typerefl:typecheck(list(tag()), L) of
+  case typerefl:typecheck(list(anvl_test:tag()), L) of
     ok ->
       ok;
     {error, Err} ->
@@ -394,7 +381,7 @@ validate_tags(L) ->
   end.
 
 validate_fixtures(L) ->
-  case typerefl:typecheck(list(fixture()), L) of
+  case typerefl:typecheck(list(anvl_test:fixture()), L) of
     ok ->
       ok;
     {error, Err} ->

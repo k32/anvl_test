@@ -57,9 +57,9 @@ tests as part of @code{foo}.
 -spec run_test(list(), anvl_erlc:application(), test(), map(), timeout()) -> ok.
 run_test(Options, _App, Module, _Env, _Timeout) ->
   case eunit:test(Module, Options) of
-    ok             -> ok;
-    error          -> error(eunit_failed);
-    {error, _} = E -> error(E)
+    ok         -> ok;
+    error      -> exit({unsat, eunit_failed});
+    {error, E} -> exit({unsat, {eunit_failed, E}})
   end.
 
 -doc """

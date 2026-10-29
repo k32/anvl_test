@@ -20,31 +20,67 @@
 -module(anvl_test_suite).
 -moduledoc """
 This module contains functions for interfacing with the test suites.
+
+A test suite is an Erlang module implementing the @erlmodref{link,anvl_test_suite} behavior.
+Each test case of the suite is a function of arity 2,
+with the first argument selecting the @i{method} to execute:
+
+@itemize
+
+@item
+@code{@{Test@}(run, Env)}: execute the test case.
+@code{Env} is a map with at least the @code{instance} key,
+and the @code{familiar} key with the network settings of the test case:
+@code{net} is the number of the @code{/24} subnet of the loopback range
+dedicated to the test case,
+and @code{subnet} is its prefix length.
+The execution is aborted if it takes longer than the timeout of the test case.
+This is the only mandatory method:
+all other methods are optional and have sane defaults.
+
+@item
+@code{@{Test@}(instances, Env)}: return the list of instances of the test case.
+The test case function is executed once for each instance,
+with the instance value passed in @code{Env}.
+Default: @code{[default]}.
+
+@item
+@code{@{Test@}(tags, Env)}: return the list of tags of the test case instance.
+Tags can be used for selecting a subset of the test cases for execution.
+Default: @code{[]}.
+
+@item
+@code{@{Test@}(fixtures, Env)}: return the list of fixtures of the test case instance.
+Fixtures are passed to the @code{familiar} library and control the environment of the isolated node where the test case runs.
+Default: global fixtures of the suite.
+
+@item
+@code{@{Test@}(timeout, Env)}: return the execution timeout of the test case instance, in milliseconds.
+Default: the global timeout of the suite.
+
+@end itemize
+
+Suite-global values for tags, fixtures, instances and timeout can be provided by implementing the corresponding callbacks of the behavior,
+e.g. @erlcb{ref,erlref,anvl_test_suite,tags,0} or @erlcb{ref,erlref,anvl_test_suite,timeout,0}.
 """.
 
--export([load/1, tc_location/2, run/1]).
+-define(DEFAULT_TC_TIMEOUT, 30000).
+
+-behavior(anvl_test_runner).
+
+-export([run_test/5, tc_location/2, discover/2]).
 -export([invoke_method/4]).
+
+%% For testing:
+-export([load/4]).
 
 -include("types.hrl").
 -include("anvl.hrl").
 -include("anvl_test_internal.hrl").
 
--export_type([test/0]).
--reflect_type([instances/0, fixture/0, tag/0]).
-
 %%--------------------------------------------------------------------------
 %% Types
 %%--------------------------------------------------------------------------
-
--type tag() :: atom().
-
--type test() :: atom().
-
--type instance() :: term().
-
--type instances() :: [instance(), ...].
-
--type fixture() :: {module(), term()}.
 
 %%--------------------------------------------------------------------------
 %% Types
@@ -54,57 +90,31 @@ This module contains functions for interfacing with the test suites.
 %% Callbacks
 %%--------------------------------------------------------------------------
 
--callback tags() -> list().
+-callback tags() -> [anvl_test:tag()].
 
--callback fixtures() -> [fixture()].
+-callback fixtures() -> [anvl_test:fixture()].
 
--callback instances() -> instances().
+-callback instances() -> anvl_test:instances().
+
+-doc """
+Return the default timeout for the test cases of the suite, in milliseconds.
+
+This value is used for the test cases that don't override the timeout individually.
+""".
+-callback timeout() -> timeout().
+
+-optional_callbacks([tags/0, fixtures/0, instances/0, timeout/0]).
 
 %%--------------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------------
 
-run(#suite{mod = Mod, tcs = TCs}) ->
-  precondition([executed(Fixtures, Mod, Name, Inst) || #tc{name = Name, inst = Inst, fixtures = Fixtures} <:- TCs]).
+-doc false.
+-spec run_test(_, module(), atom(), map(), timeout()) -> term().
+run_test(_Options, Module, Test, Env, _Timeout) ->
+  Module:Test(run, Env).
 
-?MEMO(executed, Fixtures, Mod, Fun, Instance,
-      begin
-        precondition(dist_started()),
-        SiteId = list_to_binary(peer:random_name(atom_to_list(Fun))),
-        Cluster = SiteId,
-        %% FIXME:
-        N1 = rand:uniform(256) - 1,
-        N2 = rand:uniform(256) - 1,
-        Conf = #{ id       => Cluster
-                , fixtures => Fixtures
-                , peer     => #{}
-                , net      => {127, N1, N2, 0}
-                , subnet   => 24
-                },
-        ok = familiar:start_link_cluster(Conf),
-        {ok, Site, _Node} = familiar:create_site(Cluster, SiteId,
-                                                 #{ start => true
-                                                  , fixtures => Fixtures
-                                                  }),
-        Env = #{instance => Instance},
-        try
-          familiar:call(Site, Mod, Fun, [run, Env]),
-          Msg = anvl_logger_formatter:format(
-                  success,
-                  "✅ ~p:~p(~P)",
-                  [Mod, Fun, Instance, 10]),
-          ?LOG_NOTICE(Msg)
-        catch
-          EC:Err:Stack ->
-            MsgFail = anvl_logger_formatter:format(
-                        error,
-                        "❌ ~p:~p(~P)~n~p:~p~n~p",
-                        [Mod, Fun, Instance, 10, EC, Err, Stack]),
-            ?UNSAT(MsgFail, [])
-        end,
-        true
-      end).
-
+-doc false.
 tc_location(Module, Test) ->
   %% TODO: add a more reliable way to do this via parse transform
   try
@@ -123,55 +133,65 @@ tc_location(Module, Test) ->
       end
   end.
 
-load(Module) ->
-  maybe
-    code:purge(Module),
-    {module, Module} ?= code:load_file(Module),
-    {_, Tests} ?= proplists:lookup(anvl_test_tests, Module:module_info(attributes)),
-    {ok, Tags} ?= opt_call(Module, tags, [], []),
-    ok ?= validate_tags(Tags),
-    {ok, GlobalFixtures} ?= opt_call(Module, fixtures, [], default_fixtures()),
-    ok ?= validate_fixtures(GlobalFixtures),
-    {ok, GlobalInstances} ?= opt_call(Module, instances, [], [default]),
-    ok ?= validate_instances(GlobalInstances),
-    {ok, TCs} ?= tcs(Module, GlobalFixtures, GlobalInstances, Tests, []),
-    {ok, #suite{ mod = Module
-               , tests = Tests
-               , tags = Tags
-               , tcs = TCs
-               }}
-  else
-    {module, Bad} ->
-      {error, [Module], {bad_module_attr, Bad}};
-    none ->
-      {error, [Module], not_a_suite};
-    {error, Err} ->
-      {error, [Module], Err};
-    {error, _, _} = Err ->
-      Err
+-doc """
+Discover the test suites of the OTP application:
+the modules implementing the @erlmodref{link,anvl_test_suite} behavior.
+""".
+-spec discover(anvl_erlc:profile(), anvl_erlc:application()) ->
+        {ok, [#suite{}]} | {error, [#suite{}]}.
+discover(Profile, App) ->
+  _ = precondition(anvl_erlc:app_compiled(Profile, App)),
+  Ctx = anvl_erlc:app_info(Profile, App),
+  Modules = [Module
+             || Module <- anvl_erlc:app_modules(Profile, App),
+                is_suite(Ctx, Module)],
+  load_suites(Profile, App, Modules, [], false).
+
+-spec load_suites(
+        anvl_erlc:profile(),
+        anvl_erlc:application(),
+        [module()],
+        [#suite{}],
+        boolean()
+       ) -> {ok, [#suite{}]} | {error, [#suite{}]}.
+load_suites(_Profile, _App, [], Acc, false) ->
+  {ok, Acc};
+load_suites(_Profile, _App, [], Acc, true) ->
+  {error, Acc};
+load_suites(Profile, App, [Module | Rest], Acc, Failed) ->
+  %% FIXME:
+  Project = anvl_project:root(),
+  case load(Project, Profile, App, Module) of
+    {ok, Suite} ->
+      load_suites(Profile, App, Rest, [Suite | Acc], Failed);
+    Error ->
+      ?LOG_ERROR("Failed to load suite ~p: ~p", [Module, Error]),
+      load_suites(Profile, App, Rest, Acc, true)
   end.
 
-tcs(_Module, _GlobalFixtures, _GlobalInstances, [], Acc) ->
+tcs(_Module, _GlobalFixtures, _GlobalInstances, _GlobalTimeout, [], Acc) ->
   {ok, Acc};
-tcs(Module, GlobalFixtures, GlobalInstances, [Test | Rest], Acc) ->
+tcs(Module, GlobalFixtures, GlobalInstances, GlobalTimeout, [Test | Rest], Acc) ->
   maybe
     {ok, Instances} ?= get_instances(Module, Test, GlobalInstances),
-    {ok, TCs} ?= tcs1(Module, GlobalFixtures, Test, Instances, []),
-    tcs(Module, GlobalFixtures, GlobalInstances, Rest, TCs ++ Acc)
+    {ok, TCs} ?= tcs1(Module, GlobalFixtures, GlobalTimeout, Test, Instances, []),
+    tcs(Module, GlobalFixtures, GlobalInstances, GlobalTimeout, Rest, TCs ++ Acc)
   end.
 
-tcs1(_Module, _GlobalFixtures, _Test, [], Acc) ->
+tcs1(_Module, _GlobalFixtures, _GlobalTimeout, _Test, [], Acc) ->
   {ok, Acc};
-tcs1(Module, GlobalFixtures, Test, [Inst | Rest], Acc) ->
+tcs1(Module, GlobalFixtures, GlobalTimeout, Test, [Inst | Rest], Acc) ->
   maybe
     {ok, Tags} ?= get_tags(Module, Test, Inst),
     {ok, Fixtures} ?= get_fixtures(Module, Test, Inst, GlobalFixtures),
+    {ok, Timeout} ?= get_timeout(Module, Test, Inst, GlobalTimeout),
     TC = #tc{ name = Test
             , inst = Inst
             , tags = Tags
             , fixtures = Fixtures
+            , timeout = Timeout
             },
-    tcs1(Module, GlobalFixtures, Test, Rest, [TC | Acc])
+    tcs1(Module, GlobalFixtures, GlobalTimeout, Test, Rest, [TC | Acc])
   end.
 
 get_tags(Module, Test, Instance) ->
@@ -198,14 +218,26 @@ get_fixtures(Module, Test, Instance, GlobalFixtures) ->
       {error, [Module, Test, Instance], Err}
   end.
 
-default_fixtures() ->
-  [ {familiar_code_path, #{}}
-  ].
+get_timeout(Module, Test, Instance, GlobalTimeout) ->
+  maybe
+    {ok, Timeout} ?= ?MODULE:invoke_method(Module, Test, timeout, #{instance => Instance}),
+    ok ?= validate_timeout(Timeout),
+    {ok, Timeout}
+  else
+    undefined ->
+      {ok, GlobalTimeout};
+    {error, Err} ->
+      {error, [Module, Test, Instance], Err}
+  end.
+
+default_fixtures(Project, Profile, App) ->
+  [anvl_test:code_path_fixture(Project, Profile, App)].
 
 %%--------------------------------------------------------------------------
 %% Internal exports
 %%--------------------------------------------------------------------------
 
+-doc false.
 invoke_method(Module, Test, Method, Arg) ->
   try
     {ok, Module:Test(Method, Arg)}
@@ -228,13 +260,86 @@ invoke_method(Module, Test, Method, Arg) ->
 %% Internal functions
 %%--------------------------------------------------------------------------
 
-?MEMO(dist_started,
-      begin
-        familiar:ensure_distr(#{hidden => true, name_domain => longnames}),
-        false
-      end).
+-doc false.
+load(Project, Profile, App, Module) ->
+  Ctx = anvl_erlc:app_info(Profile, App),
+  maybe
+    ok ?= ensure_loaded(Ctx, Module),
+    {_, Tests} ?= proplists:lookup(anvl_test_tests, Module:module_info(attributes)),
+    {ok, Tags} ?= opt_call(Module, tags, [], []),
+    ok ?= validate_tags(Tags),
+    {ok, GlobalFixtures} ?= maybe_add_code_path(
+                              Project,
+                              Profile,
+                              App,
+                              opt_call(Module, fixtures, [], default_fixtures(Project, Profile, App))),
+    ok ?= validate_fixtures(GlobalFixtures),
+    {ok, GlobalInstances} ?= opt_call(Module, instances, [], [default]),
+    ok ?= validate_instances(GlobalInstances),
+    {ok, GlobalTimeout} ?= opt_call(Module, timeout, [], ?DEFAULT_TC_TIMEOUT),
+    ok ?= validate_timeout(GlobalTimeout),
+    {ok, TCs} ?= tcs(Module, GlobalFixtures, GlobalInstances, GlobalTimeout, Tests, []),
+    {ok, #suite{ suite = Module
+               , runner = anvl_test_suite
+               , tags = Tags
+               , tcs = TCs
+               }}
+  else
+    none ->
+      {error, [Module], not_a_suite};
+    {error, Err} ->
+      {error, [Module], Err};
+    {error, _, _} = Err ->
+      Err
+  end.
 
--spec get_instances(module(), test(), instances()) -> {ok, instances()} | {error, _}.
+%% Make sure the module is loaded from the beam file of the profile, since
+%% the loaded module may come from a different profile:
+-spec ensure_loaded(anvl_erlc:app_info(), module()) -> ok | {error, _}.
+ensure_loaded(Ctx, Module) ->
+  Beam = anvl_erlc:beam_file(Ctx, Module),
+  case code:is_loaded(Module) of
+    {file, Beam} ->
+      ok;
+    _ ->
+      load_beam(Beam, Module)
+  end.
+
+-spec load_beam(file:filename(), module()) -> ok | {error, _}.
+load_beam(Beam, Module) ->
+  %% Note: load_abs expects the filename without the extension:
+  case code:load_abs(filename:rootname(Beam)) of
+    {module, Module} ->
+      ok;
+    {error, not_purged} ->
+      %% The error can be ignored when the current version of the module is
+      %% loaded from the right beam file, e.g. by another discoverer running
+      %% in parallel:
+      case code:is_loaded(Module) of
+        {file, Beam} -> ok;
+        _            -> {error, not_purged}
+      end;
+    {error, Reason} ->
+      {error, Reason}
+  end.
+
+%% Select modules implementing the suite behavior, by scanning the
+%% attributes chunk of the beam files of the profile:
+-spec is_suite(anvl_erlc:app_info(), module()) -> boolean().
+is_suite(Ctx, Module) ->
+  Beam = anvl_erlc:beam_file(Ctx, Module),
+  case beam_lib:chunks(Beam, [attributes]) of
+    {ok, {Module, [{attributes, Attributes}]}} ->
+      lists:any(fun({behavior,  [?MODULE]}) -> true;
+                   ({behaviour, [?MODULE]}) -> true;
+                   (_)                        -> false
+                end,
+                Attributes);
+    {error, beam_lib, _Reason} ->
+      false
+  end.
+
+-spec get_instances(module(), anvl_test:test(), anvl_test:instances()) -> {ok, anvl_test:instances()} | {error, _}.
 get_instances(Module, Test, GlobalInstances) ->
   maybe
     {ok, Inst} ?= ?MODULE:invoke_method(Module, Test, instances, #{}),
@@ -260,7 +365,7 @@ opt_call(Module, Fun, Args, Default) ->
   end.
 
 validate_instances(L) ->
-  case typerefl:typecheck(instances(), L) of
+  case typerefl:typecheck(anvl_test:instances(), L) of
     ok ->
       ok;
     {error, Err} ->
@@ -268,7 +373,7 @@ validate_instances(L) ->
   end.
 
 validate_tags(L) ->
-  case typerefl:typecheck(list(tag()), L) of
+  case typerefl:typecheck(list(anvl_test:tag()), L) of
     ok ->
       ok;
     {error, Err} ->
@@ -276,9 +381,24 @@ validate_tags(L) ->
   end.
 
 validate_fixtures(L) ->
-  case typerefl:typecheck(list(fixture()), L) of
+  case typerefl:typecheck(list(anvl_test:fixture()), L) of
     ok ->
       ok;
     {error, Err} ->
       {error, {bad_fixtures, Err}}
   end.
+
+validate_timeout(T) when is_integer(T), T >= 0; T =:= infinity ->
+  ok;
+validate_timeout(T) ->
+  {error, {bad_timeout, T}}.
+
+maybe_add_code_path(Project, Profile, App, {ok, Fixtures}) ->
+  case lists:keyfind(familiar_code_path, 1, Fixtures) of
+    false ->
+      {ok, [anvl_test:code_path_fixture(Project, Profile, App) | Fixtures]};
+    _ ->
+      {ok, Fixtures}
+  end;
+maybe_add_code_path(_, _, _, Other) ->
+  Other.

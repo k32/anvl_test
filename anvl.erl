@@ -2,12 +2,15 @@
 
 conf() ->
   #{ plugins => [anvl_erlc, anvl_git, anvl_texinfo, anvl_rebar3]
-   , conditions => [build]
-   , [erlang, includes] => ["${src_root}/include", "${src_root}/src", anvl_plugin:includes_dir()]
-   , [deps, git] =>
+   , conditions => [build, static_checks, test]
+   , erlang =>
+       #{ includes => ["${src_root}/include", "${src_root}/src", anvl_plugin:includes_dir()]
+        , [static_checks, non_runtime_deps] => [anvl_core, anvl_erlc, lee, typerefl]
+        }
+   , [deps, local] =>
        [#{ id => familiar
-         , repo => "https://github.com/ieQu1/familiar.git"
-         , ref => {tag, "0.1.4"}
+         , kind => otp_application
+         , dir => "familiar"
          }]
    , texinfo =>
        #{ compile =>
@@ -17,6 +20,7 @@ conf() ->
             ]
         , formats => [info, html]
         , sources => ["doc/anvl_test.texi"]
+        , include_dirs => [anvl_texinfo_erlang:includes_dir()]
         }
    }.
 
@@ -25,6 +29,21 @@ conf() ->
         [ anvl_erlc:app_compiled(default, anvl_test)
         , doc()
         ])).
+
+?MEMO(static_checks,
+      precondition(
+        [ anvl_erlc_xref:passed(default)
+        , anvl_erlc_dialyzer:passed(default)
+        ])).
+
+?MEMO(test,
+      begin
+        %% Run the test project with the @code{anvl} binary from @code{PATH}:
+        TestDir = filename:join(anvl_project:root_dir(), "test"),
+        {0, Output} = anvl_lib:exec_("anvl", [], [{cd, TestDir}, collect_output]),
+        io:put_chars(["> ", lists:join("\n> ", Output), $\n]),
+        false
+      end).
 
 ?MEMO(doc,
       begin
